@@ -1,0 +1,199 @@
+---
+title: "Troubleshoot SA Agent: Common Issues and Fixes"
+sidebarTitle: "Troubleshooting"
+description: "Diagnose and fix the most common SA Agent setup and runtime issues, from gateway authentication to missing MCP servers and empty artifact stores."
+---
+
+Most SA Agent problems fall into one of three categories: gateway authentication, MCP server startup, or a missing environment variable. This guide covers each known issue with its symptoms, root cause, and the exact fix.
+
+<Note>
+  Before digging into specific symptoms, hit the health endpoint to confirm the backend is running and reachable:
+
+  ```bash
+  curl http://localhost:3000/health
+  ```
+
+  A `200 OK` with `{ "ok": true }` means the Express server is up. If this fails, start the backend first: `cd "$SA_AGENT_HOME/backend" && bun run dev`.
+</Note>
+
+<Accordion title="401 virtual key is required">
+  **Symptom:** Claude Code returns `401 virtual key is required` immediately after sending a message.
+
+  **Cause:** You launched `claude` directly from your shell. A plain `claude` invocation uses your Claude subscription OAuth token, which sends an `Authorization: Bearer` header. Bifrost expects the virtual key on `x-bf-vk` — the subscription token is rejected.
+
+  **Fix:** Quit the current session. Always launch Claude Code through the SA Agent launcher:
+
+  ```bash
+  "$SA_AGENT_HOME/backend/scripts/claude"
+  ```
+
+  If you have a Claude subscription login cached, run `/logout` inside Claude before quitting, then relaunch through the script.
+</Accordion>
+
+<Accordion title="Still connecting to api.anthropic.com instead of Bifrost">
+  **Symptom:** `/status` in Claude Code shows the API base URL as `api.anthropic.com`, not your Bifrost origin.
+
+  **Cause:** Environment variables are read at Claude Code startup, not on every request. If you updated `backend/.env` or your shell profile after the session started, those changes have no effect on the running session.
+
+  **Fix:** Open a **new terminal**, confirm `SA_AGENT_HOME` is set correctly (`echo $SA_AGENT_HOME`), and relaunch through the script:
+
+  ```bash
+  cd /path/to/product-repo
+  "$SA_AGENT_HOME/backend/scripts/claude"
+  ```
+
+  Also check that `ANTHROPIC_AUTH_TOKEN` is not set anywhere in your environment — it overrides Bifrost unconditionally:
+
+  ```bash
+  unset ANTHROPIC_AUTH_TOKEN
+  ```
+
+  Do not put `ANTHROPIC_BASE_URL` or `ANTHROPIC_AUTH_TOKEN` in `~/.zshrc`.
+</Accordion>
+
+<Accordion title="404 on Bifrost requests">
+  **Symptom:** Every request returns a `404` from the gateway, even though credentials look correct.
+
+  **Cause:** The Anthropic Messages surface lives at `$BIFROST_BASE_URL/anthropic`. If `BIFROST_BASE_URL` points at the gateway origin without the `/anthropic` path suffix, all requests 404.
+
+  **Fix:** Add `/anthropic` to `BIFROST_BASE_URL` in `backend/.env`:
+
+  ```bash title="backend/.env"
+  # Correct
+  BIFROST_BASE_URL=https://inf-bifrost.example.com/anthropic
+
+  # Incorrect — missing /anthropic
+  BIFROST_BASE_URL=https://inf-bifrost.example.com
+  ```
+
+  Run `bun run check:bifrost -- --claude` to verify the fix before relaunching.
+</Accordion>
+
+<Accordion title="MCP servers (sa-knowledge, jira) not loading">
+  **Symptom:** `/mcp` in Claude Code shows no servers, or servers are listed with a failed/disconnected status.
+
+  **Cause:** The MCP server processes are spawned with the environment of the shell that launched Claude. If `SA_AGENT_HOME` was not set in that shell, the launchers cannot find the `backend/.env` file and exit immediately.
+
+  **Fix:** Verify that `SA_AGENT_HOME` is set in the terminal you use to launch Claude:
+
+  ```bash
+  echo $SA_AGENT_HOME
+  # Should print something like /Users/you/agents/sa-agent
+  ```
+
+  If it is empty, add the export to your shell profile and source it:
+
+  ```bash title="~/.zshrc"
+  export SA_AGENT_HOME="$HOME/agents/sa-agent"
+  ```
+
+  ```bash
+  source ~/.zshrc
+  ```
+
+  For a permanent fallback (useful for Codex, which strips spawned-process environments), record the path to a file:
+
+  ```bash
+  mkdir -p ~/.sa-agent
+  echo "$SA_AGENT_HOME" > ~/.sa-agent/home
+  ```
+</Accordion>
+
+<Accordion title="/model picker shows no gateway models">
+  **Symptom:** The `/model` picker in Claude Code lists only Claude names (claude-opus-4, claude-sonnet-4, etc.) — no Qwen, GLM, or other gateway models appear.
+
+  **Cause:** This is expected behavior. The `/model` picker enumerates Claude model names from the Anthropic model list, not the Bifrost gateway catalog.
+
+  **Fix:** Type the model ID directly instead of using the picker:
+
+  ```
+  /model dashscope/qwen3.8-max
+  /model huawei/glm-5.2
+  ```
+
+  To see which model IDs your virtual key can actually reach, run:
+
+  ```bash
+  bun run check:bifrost -- --models
+  ```
+</Accordion>
+
+<Accordion title="Empty response with finish_reason: length">
+  **Symptom:** The agent returns an empty message or a truncated response. The backend logs show `finish_reason: "length"`.
+
+  **Cause:** Reasoning models consume tokens for thinking before generating content. If `BIFROST_MAX_TOKENS` is too small, the entire token budget can be exhausted during the reasoning phase, leaving nothing for the actual response.
+
+  **Fix:** Increase `BIFROST_MAX_TOKENS` in `backend/.env`. The default is `4096`, which covers most models. For extended-thinking models, set it higher:
+
+  ```bash title="backend/.env"
+  BIFROST_MAX_TOKENS=8192
+  ```
+
+  A truncated reply also logs a warning to stderr — check `bun run dev` output for `finish_reason: length` warnings as an early signal before responses go fully empty.
+</Accordion>
+
+<Accordion title="Codex MCP server exits asking for SA_AGENT_HOME">
+  **Symptom:** After installing the sa-agent plugin in Codex, the MCP server exits at startup with a message asking you to set `SA_AGENT_HOME`.
+
+  **Cause:** Codex spawns plugin MCP servers with a stripped environment and does not expand `${SA_AGENT_HOME}` in their arguments. Neither the environment variable nor the fallback file (`~/.sa-agent/home`) resolved.
+
+  **Fix:** Write the absolute path to the fallback file:
+
+  ```bash
+  mkdir -p ~/.sa-agent
+  echo "$SA_AGENT_HOME" > ~/.sa-agent/home
+  ```
+
+  Verify it worked by running `cat ~/.sa-agent/home` — it should print the absolute path to the sa-agent checkout. Restart the Codex session after writing the file.
+</Accordion>
+
+<Accordion title="search_schema_docs returns no results">
+  **Symptom:** The agent reports that `search_schema_docs` returned no results, or it skips the tool entirely during the discuss phase.
+
+  **Cause:** No DDL has been ingested into the Chroma vector store yet, or the Chroma / Ollama environment variables are missing from `backend/.env`.
+
+  **Fix:** Confirm that `CHROMA_HOST`, `CHROMA_API_KEY`, `CHROMA_TENANT`, `CHROMA_DATABASE`, `CHROMA_DDL_COLLECTION`, `OLLAMA_URL`, and `OLLAMA_EMBED_MODEL` are all set in `backend/.env`. Then run the ingest:
+
+  ```bash
+  cd "$SA_AGENT_HOME/backend"
+  bun run ingest:ddl path/to/schema.sql
+  ```
+
+  See [DDL Ingest](/guides/ingest-ddl) for the full prerequisites and export steps.
+</Accordion>
+
+<Accordion title="run_sql returns a permissions error">
+  **Symptom:** The agent calls `run_sql` and it returns a PostgreSQL permissions error, or `run_sql` reports that the query was rejected before reaching the database.
+
+  **Cause:** `DATABASE_URL` is pointing at a role that either lacks `SELECT` on the relevant tables, or the SA Agent backend rejected the query because it is not a read-only `SELECT` or `WITH` statement.
+
+  **Fix:** For permissions errors from PostgreSQL, update `DATABASE_URL` to use a read-only role:
+
+  ```bash title="backend/.env"
+  DATABASE_URL=postgresql://sa_readonly:password@host:5432/database
+  ```
+
+  For SA Agent rejecting the query: the agent enforces read-only access at the application level. `run_sql` only accepts `SELECT` and `WITH` queries. If you need to run writes during a session, do so directly in `psql` — do not attempt to route writes through `run_sql`.
+</Accordion>
+
+<Accordion title="Chat GUI shows no artifacts">
+  **Symptom:** The Artifacts panel in the Chat GUI is empty after a session that should have produced phase outputs.
+
+  **Cause:** Either Supabase is not configured in `backend/.env`, or the `artifacts` bucket and its metadata table have not been created.
+
+  **Fix:**
+
+  1. Confirm `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are set in `backend/.env`.
+  2. In the Supabase dashboard, create a bucket named `artifacts` (private, not public).
+  3. In the Supabase SQL editor, run the migration:
+
+  ```sql title="Supabase SQL editor"
+  -- run the contents of sql/artifacts.sql from the sa-agent repo
+  ```
+
+  ```bash title="Find the migration file"
+  cat "$SA_AGENT_HOME/sql/artifacts.sql"
+  ```
+
+  Restart the backend after updating environment variables. Artifacts from sessions that ran before Supabase was configured are not recoverable — they exist only in the LangGraph checkpointer for the duration of the process.
+</Accordion>

@@ -1,72 +1,100 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mintlify Starter Kit",
+  "name": "SA Agent",
+  "theme": "luma",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#bf3b41",
+    "light": "#f7ecd7",
+    "dark": "#090908"
   },
-  "favicon": "/favicon.svg",
-  "navigation": {
-    "pages": [
-      {
-        "group": "Getting Started",
-        "pages": [
-          "index",
-          "quickstart"
-        ]
-      }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
+  "favicon": "https://media.brand.dev/2af7f54d-3046-44e2-9fba-96edfef8dd54.png",
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "light": "https://media.brand.dev/a2294f4d-8e7a-4247-93f8-84fa73ae2443.svg",
+    "dark": "https://media.brand.dev/a2294f4d-8e7a-4247-93f8-84fa73ae2443.svg"
   },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
     "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://app.mintlify.com"
+      "type": "github",
+      "href": "https://github.com/yanisapths/sa-agent"
     }
   },
-  "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
-      "mcp",
-      "cursor",
-      "vscode"
+  "fonts": {
+    "heading": {
+      "family": "Archivo"
+    },
+    "body": {
+      "family": "Martian Mono"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "get-started/introduction",
+              "get-started/quickstart",
+              "get-started/configuration"
+            ]
+          },
+          {
+            "group": "Runtimes",
+            "pages": [
+              "runtimes/overview",
+              "runtimes/claude-code",
+              "runtimes/codex",
+              "runtimes/chat-gui"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/grounding",
+              "concepts/phases",
+              "concepts/system-model",
+              "concepts/pvt-track"
+            ]
+          },
+          {
+            "group": "Tools & Skills",
+            "pages": [
+              "tools/schema-tools",
+              "tools/knowledge-tools",
+              "tools/system-model-tools",
+              "tools/workspace-tools",
+              "tools/skills"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/first-analysis",
+              "guides/ingest-ddl",
+              "guides/jira-integration",
+              "guides/model-configuration",
+              "guides/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "HTTP API",
+            "pages": [
+              "api/overview",
+              "api/chat",
+              "api/gateway",
+              "api/vault",
+              "api/artifacts",
+              "api/workspaces"
+            ]
+          }
+        ]
+      }
     ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
   }
 }

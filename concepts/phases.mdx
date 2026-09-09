@@ -1,0 +1,154 @@
+---
+title: "SA Agent's Six-Phase Analysis Workflow Explained"
+sidebarTitle: "Phases"
+description: "SA Agent runs a six-phase harness loop — discuss, plan, execute, test, review, ship — with a human approval gate between each phase and a specialist model per phase."
+---
+
+SA Agent does not hand your entire request to one large model and wait for a single answer. Instead, it runs a disciplined six-phase loop: a cheap orchestrator routes to a specialist, the specialist produces one artifact, and then it stops and waits for you. The next phase reads that artifact — not the conversation — so context stays small and each specialist stays focused.
+
+## Why phases exist
+
+A single model that discusses, plans, codes, and reviews burns context and costs more per turn. The orchestrator is a cheap router. Each phase is a small, fast specialist with a narrow tool set. Distilling the output of phase N into one artifact file is what makes phase N+1 cheap: the plan agent reads the discuss file, not the full conversation; the test agent reads the execute file, not the diff.
+
+```
+[discuss] ── discuss.md ──► [plan] ── plan.md ──► [execute] ── execute.md ──► [test]
+   HITL                       HITL                    HITL                      HITL
+                                                                                 │
+[ship] ◄── you commit ── [review] ◄── review.md ────────────────────────────────┘
+  human                     HITL
+```
+
+## The six phases
+
+<Tabs>
+  <Tab title="discuss">
+    The discuss phase grounds your request in reality before anything is designed.
+
+    The **system analyst** specialist reads your request, optionally fetches a Jira ticket or user story if you named one, indexes the live schema, and builds or queries the system model. It produces `discuss.md` — a scope statement, a field map, any gaps in the requirements, and questions for you to answer before planning begins.
+
+    **Your action:** read the gaps and questions, answer what you can, then approve the file.
+  </Tab>
+  <Tab title="plan">
+    The plan phase turns the approved discussion into a concrete specification.
+
+    The **solution architect** specialist reads your approved `discuss.md`, queries the system model for impact (`simulate_impact`), and produces `plan.md` — a spec with a Mermaid architecture diagram, a numbered execute checklist, and an **Impact and risk** section that states the blast radius of the proposed change.
+
+    **Your action:** review the spec and impact section, then approve the plan.
+  </Tab>
+  <Tab title="execute">
+    The execute phase implements exactly the checklist in the approved plan.
+
+    The **coder** specialist reads `plan.md` and works through the numbered steps. It may write to your attached project folder via `workspace_write`, rebuild the system model after changes, and record a decision if you give it a reason that the code cannot carry. It produces `execute.md` — what changed, which files, and any residual risks.
+
+    **Your action:** review the changes, then accept.
+  </Tab>
+  <Tab title="test">
+    The test phase validates that the implementation covers what was specified.
+
+    The **test engineer** specialist reads `discuss.md`, `plan.md`, and `execute.md` together. It produces `test.md` — a set of test cases, fixtures, a spec quiz (each rule in the plan either has a test or is explicitly listed as a gap), and the set of affected files that have no test coverage.
+
+    **Your action:** review coverage, then accept.
+  </Tab>
+  <Tab title="review">
+    The review phase provides an independent assessment before you ship.
+
+    The **reviewer** specialist reads `plan.md`, `execute.md`, and `test.md`. It produces `review.md` — findings, required refactors, and a clear ship-ready verdict. If any change reverses a recorded architecture decision without arguing against it, the reviewer flags it as a critical finding.
+
+    **Your action:** accept the review or send back to execute or test.
+  </Tab>
+  <Tab title="ship">
+    The ship phase belongs entirely to you.
+
+    SA Agent does not commit or open pull requests. Once you accept the review, you commit the changes and open the PR. The agent's job ends at `review.md`.
+  </Tab>
+</Tabs>
+
+## Phase reference table
+
+| Phase | Specialist | Receives | Produces | Your action |
+|---|---|---|---|---|
+| **discuss** | System Analyst | Request + optional ticket + index + live schema | Scope, gaps, field map, questions | Approve or answer gaps |
+| **plan** | Solution Architect | Approved `discuss.md` | Spec, Mermaid diagram, execute checklist | Approve the plan |
+| **execute** | Coder | Approved `plan.md` | Code + execute notes + residual risks | Accept the change |
+| **test** | Test Engineer | `discuss.md` + `plan.md` + `execute.md` | Cases, fixtures, spec quiz, gaps | Accept coverage |
+| **review** | Reviewer | `plan.md` + `execute.md` + `test.md` | Findings, ship-ready verdict | Accept or send back |
+| **ship** | You | Accepted `review.md` | Commit / PR | You ship |
+
+## Human approval gates
+
+Every phase writes exactly one artifact file, then stops. The next specialist reads that file — not the chat thread. This is intentional: the artifact is the interface between phases, not the conversation. Approving a file is what authorises the next phase to start.
+
+<Note>
+  There is no `/start` command. Approving the artifact file **is** the trigger
+  for the next phase. In Claude Code, write the file then invoke the next
+  `/agents` phase. In the Chat GUI, send a message in the same thread — the
+  orchestrator reads the last artifact and delegates to the appropriate
+  specialist.
+</Note>
+
+## Pinning a phase
+
+By default, the orchestrator reads your message and decides which phase to run. You can override this by passing the `phase` parameter in your request.
+
+<Tabs>
+  <Tab title="Chat API">
+    ```json title="POST /chat — pin to plan"
+    {
+      "message": "Design the user notification service",
+      "threadId": "thread_abc123",
+      "phase": "plan"
+    }
+    ```
+
+    Valid values for `phase`: `discuss`, `plan`, `execute`, `test`, `review`, `pvt-discuss`, `pvt-plan`, `pvt-execute`.
+  </Tab>
+  <Tab title="Claude Code">
+    In Claude Code, use `/agents` to select the phase by name:
+
+    ```
+    /agents discuss
+    /agents plan
+    /agents execute
+    /agents test
+    /agents review
+    ```
+  </Tab>
+  <Tab title="Codex">
+    In Codex, invoke the skill for the phase you want:
+
+    ```
+    $system-analyst
+    $solution-architect
+    $backend
+    $test-engineer
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+  `ship` is not a selectable phase. A human commits and opens the PR — the
+  agent does not have access to git push.
+</Warning>
+
+## Model overrides per phase
+
+Each phase runs on a separate model. Set environment variables to override the default for any phase:
+
+| Variable | Phase |
+|---|---|
+| `AGENT_ORCHESTRATOR_MODEL` | Router |
+| `AGENT_DISCUSS_MODEL` | discuss |
+| `AGENT_PLAN_MODEL` | plan |
+| `AGENT_EXECUTE_MODEL` | execute |
+| `AGENT_TEST_MODEL` | test |
+| `AGENT_REVIEW_MODEL` | review |
+
+Model IDs use the format `provider:model` for direct access (e.g., `ollama:qwen2.5-coder`) or `provider/model` for the Bifrost gateway (e.g., `dashscope/qwen3.7-max`). Set `BIFROST_BASE_URL` and `BIFROST_API_KEY` to route all unspecified phases through the gateway.
+
+```bash title=".env — run execute locally, everything else through Bifrost"
+BIFROST_BASE_URL=https://gateway.example.com
+BIFROST_API_KEY=vk_...
+BIFROST_MODEL=dashscope/qwen3.7-max
+
+AGENT_EXECUTE_MODEL=ollama:qwen2.5-coder
+```

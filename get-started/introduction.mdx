@@ -1,0 +1,82 @@
+---
+title: "SA Agent: AI Analysis Grounded in Your Live Schema"
+sidebarTitle: "Introduction"
+description: "SA Agent is an AI system analyst and solution architect that grounds every answer in your live PostgreSQL schema, codebase graph, and indexed docs — in three runtimes."
+---
+
+SA Agent is an AI-powered system analyst and solution architect. Instead of reasoning from stale documentation snapshots, it grounds every answer in your live PostgreSQL schema, a deterministic dependency graph of your codebase, and indexed documentation — so the relationships and column types it reasons about are always current. You interact with it through three runtimes that share the same tools and memory, and you stay in control at every phase through a structured human-in-the-loop workflow.
+
+## What SA Agent does
+
+SA Agent answers the questions that block engineers during design, implementation, and review: "What tables does this feature touch?", "What breaks if I rename this column?", "Why was this built this way?" It can draft SQL, write API specs, model data flows, generate test plans, and produce production verification scripts — all in conversation, without leaving your editor or your browser.
+
+Every answer is tied back to evidence from one of four grounding layers:
+
+| Layer | What it provides | Freshness |
+|---|---|---|
+| **Live schema** | Tables, columns, foreign keys, real relationships | Real time |
+| **System model** | What connects to what in the codebase, blast-radius analysis | Last `build_system_model` run |
+| **Documentation** | Live Mintlify docs and indexed DDL narrative | Live / last ingest |
+| **Jira** | Ticket details and user stories | Only when you ask |
+
+The agent never invents a table. If a table is referenced in code but absent from the live schema, it reports that discrepancy rather than fabricating a definition.
+
+## The three runtimes
+
+<CardGroup cols={3}>
+  <Card title="Claude Code Plugin" icon="code" href="/runtimes/claude-code">
+    Run SA Agent inside your product repo via Claude Code (CLI or desktop). You get skills, subagents, and MCP tools, and the agent can read and write files directly in that workspace.
+  </Card>
+  <Card title="Codex Plugin" icon="robot" href="/runtimes/codex">
+    Use SA Agent with the Codex CLI or ChatGPT desktop. Skills and MCP tools are loaded from the same plugin marketplace. Codex drives the execute and review phases directly.
+  </Card>
+  <Card title="Chat GUI" icon="message" href="/runtimes/chat-gui">
+    A browser chat backed by a LangChain Deep Agent at `POST /chat`. Supports vault file mentions, phase artifacts, session continuity via `threadId`, and local project folders on the same machine.
+  </Card>
+</CardGroup>
+
+All three runtimes share the same tools, skills, and memory. The difference is what drives the LLM and where artifacts are written.
+
+## Grounding: why "live schema" matters
+
+Most AI coding assistants reason from documentation or training data that may be months out of date. SA Agent grounds every turn in what your database actually looks like right now.
+
+When you ask about `orders.user_id`, SA Agent calls `describe_tables` and `inspect_relationships` to read the live column definition and the foreign key pointing at `users.id`. It does not guess. The same principle applies to the system model: a table referenced by a service but missing from the live schema is flagged as unverified, not silently accepted.
+
+The four grounding tools available in every runtime are:
+
+1. **Live DB** — `list_tables`, `describe_tables`, `inspect_relationships`, `run_sql`
+2. **System model** — `query_system_model`, `simulate_impact`, `search_decisions`
+3. **Documentation** — `search_docs`, `get_doc_page`, `search_schema_docs`
+4. **Jira** — `get_jira_ticket`, `read_jira_user_story` (on explicit request only)
+
+## The six-phase workflow
+
+SA Agent follows a structured loop that keeps a human in the loop at every significant step. Each phase produces an artifact that must be approved before the next phase starts.
+
+| Phase | What happens |
+|---|---|
+| **Discuss** | Clarify requirements, inspect the schema, understand the domain |
+| **Plan** | Draft the solution: SQL, API spec, architecture diagram |
+| **Execute** | Implement: write files, SQL migrations, API code |
+| **Test** | Generate test plans and fixtures |
+| **Review** | Validate changes against the schema and system model |
+| **Ship** | Hand off to git — the agent does not commit or open a PR |
+
+<Note>
+  There is also a **PVT prep track** (`pvt-discuss` → `pvt-plan` → `pvt-execute`) for generating SQL scripts that someone else runs in production as a Production Verification Test.
+</Note>
+
+When you use the Chat GUI, the `phase` field in your `POST /chat` request pins the specialist for that turn. In the plugin runtimes, you invoke the matching skill — `$system-analyst`, `$solution-architect`, `$test-engineer`, `$backend`, or `$pvt-prep` — and approve the artifact before moving on.
+
+## Skills loaded on demand
+
+SA Agent loads specialist knowledge only when a task matches — keeping every session lean by default. The available skills are:
+
+- `$system-analyst` — requirements analysis, data models, SQL design
+- `$solution-architect` — architecture decisions, diagrams, API contracts
+- `$test-engineer` — test plans and fixtures
+- `$backend` — API and endpoint implementation
+- `$jira` — Jira ticket and user story retrieval
+- `$pvt-prep` — production verification SQL scripts
+- `$system-model` — code graph, impact analysis, decision records

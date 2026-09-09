@@ -1,0 +1,224 @@
+---
+title: "SA Agent Chat GUI: Browser-Based Analysis Interface"
+sidebarTitle: "Chat GUI"
+description: "Run the SA Agent browser interface, attach local project folders, use the vault for file uploads, and manage HITL approval interrupts."
+---
+
+The Chat GUI gives you a browser interface to the same SA Agent capabilities available in the CLI plugins — live schema tools, system model, docs search, and phase-by-phase analysis. Behind the scenes it runs a LangChain Deep Agent that your browser talks to over `POST /chat`. Unlike the plugin runtimes, this is a full HTTP client–server setup: a Next.js frontend communicates with an Express backend, and you can attach local project folders, upload files to the vault, and review phase artifacts in a dedicated panel.
+
+<Note>
+The backend process and the local project folders you attach must live on the same computer. The Chat GUI cannot read folders on a remote machine.
+</Note>
+
+## Setup
+
+### Configure ports
+
+Align the ports so Next.js and Express do not collide. Create or edit both env files before starting either process.
+
+<CodeGroup>
+```bash title="backend/.env"
+PORT=5001
+CORS_ORIGIN=http://localhost:3000
+```
+
+```bash title="frontend/.env.local"
+NEXT_PUBLIC_AGENT_API=http://localhost:5001
+NEXT_PUBLIC_VAULT_TOKEN=<same value as VAULT_DEV_TOKEN>
+```
+</CodeGroup>
+
+### Start the backend and frontend
+
+```bash title="Terminal 1 — backend"
+cd "$SA_AGENT_HOME/backend"
+bun install
+bun run dev
+```
+
+```bash title="Terminal 2 — frontend"
+cd "$SA_AGENT_HOME/frontend"
+bun install
+bun run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+## Sending Messages
+
+Every message you send in the GUI calls `POST /chat` on the backend. You can also call the endpoint directly without the browser.
+
+<CodeGroup>
+```bash title="Health check"
+curl -s http://localhost:5001/health
+```
+
+```bash title="First message"
+curl -s -X POST http://localhost:5001/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "List the tables that look related to orders."}'
+```
+
+```bash title="Continue a session"
+curl -s -X POST http://localhost:5001/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "Which of those tables has the most foreign key references?", "threadId": "<id from previous response>"}'
+```
+
+```bash title="Request SSE stream"
+curl -s -X POST http://localhost:5001/chat \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: text/event-stream' \
+  -d '{"message": "Describe the orders table."}'
+```
+</CodeGroup>
+
+## Session Continuity
+
+The agent maintains per-thread state using the `threadId` returned in each response. The GUI passes this automatically on every subsequent turn. When calling the API directly, include the returned `threadId` in your next request to keep the conversation in context.
+
+<Tip>
+Switching the `model` mid-thread is supported. The agent cache is keyed per model but shares one checkpointer, so the conversation history carries over.
+</Tip>
+
+## Attaching a Local Project Folder
+
+Register a folder on the sidebar to let the agent read and write files in a local repo. The backend must be running on the same machine as the folder.
+
+<Steps>
+  <Step title="Open the sidebar">
+    In the Chat GUI, click **Work in a folder** in the left sidebar (or navigate to the Workspaces panel).
+  </Step>
+  <Step title="Register the folder">
+    Enter the absolute path to your product repo, give it a name, and click **Add**.
+
+    The backend registers it via `POST /v1/workspaces`:
+
+    ```bash title="Register via API"
+    curl -s -X POST http://localhost:5001/v1/workspaces \
+      -H 'Content-Type: application/json' \
+      -H 'Authorization: Bearer <token>' \
+      -d '{"name": "admin-service", "path": "/Users/you/src/admin-service"}'
+    ```
+  </Step>
+  <Step title="Mention files in chat">
+    Reference files in your registered project using the `@Projects/` mention syntax. The agent's `workspace_read`, `workspace_ls`, and `workspace_grep` tools resolve these paths against the registered root.
+
+    ```
+    @Projects/admin-service/src/orders/service.ts
+    @Projects/admin-service
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+The execute phase can write files inside the registered project root. Review all writes before committing — the agent does not commit or open pull requests, but it does modify files on disk.
+</Warning>
+
+## Vault
+
+The vault stores files you upload and lets you mention them in chat messages. Files are stored in Supabase and mounted on the agent's virtual filesystem.
+
+### Prerequisites
+
+1. Create a `vault` bucket in Supabase.
+2. Run `sql/vault.sql` in the Supabase SQL editor.
+3. Set `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `VAULT_DEV_TOKEN` in `backend/.env`.
+
+### Uploading and Mentioning Files
+
+Upload files through the GUI's vault panel, or via the API:
+
+```bash title="Upload a file"
+curl -s -X POST http://localhost:5001/v1/vault/files \
+  -H 'Authorization: Bearer <token>' \
+  -F 'folderId=<folder-id>' \
+  -F 'file=@schema.sql'
+```
+
+Then mention the file in any chat message:
+
+```
+Analyse the schema in @requirements/schema.sql and identify any missing indexes.
+```
+
+<Info>
+Vault mentions require an `Authorization: Bearer <token>` header on `POST /chat`. Without it, the mention token is left as literal text in the message, and the agent is notified it could not resolve the file. Chat itself does not require auth.
+</Info>
+
+**Limits:** 5 files per message · 1 MB per file · 4 MB total. PDF, DOCX, and XLSX files are uploaded but not decoded — export to CSV or Markdown for those formats.
+
+## Artifacts
+
+Phase outputs and any files written by the execute phase are stored as artifacts. They appear in the **Artifacts** panel in the GUI after each phase completes.
+
+### Prerequisites
+
+1. Create an `artifacts` bucket in Supabase.
+2. Run `sql/artifacts.sql` in the Supabase SQL editor.
+
+### Mentioning Artifacts
+
+Reference a previous phase output in a follow-up message:
+
+```
+Based on @Artifacts/solution-architect.md, generate the migration script.
+```
+
+You can also download, copy, or update artifact versions through the GUI panel or the artifacts API:
+
+```bash title="List artifacts for a thread"
+curl -s "http://localhost:5001/v1/artifacts/files?threadId=<id>" \
+  -H 'Authorization: Bearer <token>'
+```
+
+## HITL Approval Interrupts
+
+The agent pauses at phase boundaries and waits for your approval before continuing. The GUI displays the interrupt with **Approve**, **Edit**, and **Reject** options.
+
+When you receive an SSE stream, a waiting turn surfaces as:
+
+```
+event: interrupt
+event: done  (status: "waiting")
+```
+
+Resume the paused thread by sending your decision:
+
+```bash title="Approve and continue"
+curl -s -X POST http://localhost:5001/chat/resume \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: text/event-stream' \
+  -d '{"threadId": "<id>", "decisions": [{"type": "approve"}]}'
+```
+
+<Note>
+Execution timeout does not count time spent waiting for approval. Vault and workspace mounts for the paused thread are held in memory for 30 minutes.
+</Note>
+
+## Selecting a Phase
+
+By default the router reads your message and picks the right phase. You can pin a specific phase for a turn using the `phase` parameter:
+
+```bash
+curl -s -X POST http://localhost:5001/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "Draft the test plan.", "threadId": "<id>", "phase": "test"}'
+```
+
+Available phase values: `discuss`, `plan`, `execute`, `test`, `review`, `pvt-discuss`, `pvt-plan`, `pvt-execute`.
+
+<Tip>
+`ship` is not selectable — a human closes git. The router defaults to `discuss` when it cannot determine the phase from the message.
+</Tip>
+
+## Environment Reference
+
+| Variable | Purpose |
+|---|---|
+| `PORT` | Backend listen port (default `3000`; set to `5001` to avoid colliding with Next.js) |
+| `CORS_ORIGIN` | Frontend origin(s), comma-separated; must include your Next.js URL |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | Supabase project for vault, artifacts, and workspaces |
+| `VAULT_DEV_TOKEN` | Dev token for local vault auth; used in `NEXT_PUBLIC_VAULT_TOKEN` |
+| `WORKSPACE_ALLOWED_ROOTS` | Optional comma-separated path prefixes; limits which folders can be registered |
+| `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | LangSmith tracing for Chat GUI sessions |

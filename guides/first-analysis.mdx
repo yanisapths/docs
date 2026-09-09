@@ -1,0 +1,216 @@
+---
+title: "Run Your First System Analysis with SA Agent"
+sidebarTitle: "First Analysis"
+description: "Walk through a complete discuss → plan → execute cycle, from building the system model to shipping a PR with real prompts and expected outputs."
+---
+
+SA Agent grounds every answer in your live PostgreSQL schema, a dependency graph of your codebase, and indexed documentation — so the specification it produces traces every field back to a real column, not an invention. This guide walks you through a full discuss → plan → execute cycle so you can see each phase in action before trusting it with production work.
+
+<Note>
+  SA Agent never commits code or opens a pull request. The agent writes artifacts and implements the approved plan inside your working tree; you commit the result and open the PR yourself.
+</Note>
+
+<Steps>
+
+  <Step title="Build the system model for your product repo (one-time setup)">
+    The system model is a deterministic dependency graph of your product repo — endpoints, services, repositories, tests, docs, and the live tables they touch. Build it once before your first session; rebuild it whenever the code moves significantly.
+
+    ```bash title="Build the system model"
+    cd /path/to/product-repo
+    bun run --cwd "$SA_AGENT_HOME/backend" model:build "$PWD"
+    ```
+
+    The build writes `.sa/system-model.db` into your product repo. Add the SQLite files to `.gitignore` — the graph is rebuildable, but decision records inside `.sa/decisions/` are not:
+
+    ```gitignore title=".gitignore"
+    .sa/*.db
+    .sa/*.db-shm
+    .sa/*.db-wal
+    ```
+
+    If the database is unreachable the build still succeeds — it marks every table referenced in code as unverified rather than failing outright.
+  </Step>
+
+  <Step title="Start a discussion phase">
+    Open your product repo through the SA Agent launcher (Claude Code), start a Codex session, or send a `POST /chat` request. Then kick off the discuss phase with a concrete feature request.
+
+    <Tabs>
+      <Tab title="Claude Code / Codex">
+        ```
+        $system-analyst
+
+        I need to add a user activity feed. Show me the relevant tables and any gaps.
+        ```
+      </Tab>
+      <Tab title="Chat API">
+        ```bash title="POST /chat — discuss phase"
+        curl -s -X POST http://localhost:5001/chat \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "message": "I need to add a user activity feed. Show me the relevant tables and any gaps.",
+            "phase": "discuss"
+          }'
+        ```
+
+        Save the returned `threadId` — pass it on every subsequent turn to continue the session.
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Watch the System Analyst ground the answer">
+    The `$system-analyst` skill drives the discuss phase. It never assumes a column exists; it inspects the live schema first, then checks prior art in your documentation.
+
+    Behind the scenes the agent runs these tools in order:
+
+    1. **`list_tables`** — discovers every table in the configured schema.
+    2. **`describe_tables`** — reads column names, types, and nullability for the candidate tables.
+    3. **`inspect_relationships`** — maps foreign keys and cardinality so it knows which joins are valid.
+    4. **`search_docs`** then **`get_doc_page`** — checks whether any existing endpoint already covers the same entities, so the new spec stays consistent with what already ships.
+    5. **`query_system_model`** — looks up which services and routes already reference these tables.
+
+    The discuss artifact (`docs/sa/discuss.md`) that comes back includes:
+
+    - A **scope** statement — what is in, what is explicitly out.
+    - An **entity table** — table name, grain (what one row means), and key columns.
+    - A **field mapping** — every response field traced to a real source column or an explicit derivation rule, with type and nullability from `describe_tables`.
+    - A **gaps list** — anything the story asks for that the schema or docs do not currently support, stated as open questions rather than invented answers.
+  </Step>
+
+  <Step title="Review and approve the discuss artifact">
+    The agent writes the discuss artifact to `docs/sa/discuss.md` in your product repo. Read it before proceeding — the plan phase takes this document as its input.
+
+    ```bash title="Review the discuss artifact"
+    cat docs/sa/discuss.md
+    ```
+
+    If anything is wrong — a missing table, an incorrect field, a gap that is actually already covered — correct it now. Edit the file directly or ask the agent to revise. Approve only when every field traces to a real column and the gaps are genuinely open questions.
+
+    In the Chat GUI, the artifact appears in the Artifacts panel. In Claude Code and Codex, the file is written into your working tree.
+  </Step>
+
+  <Step title="Start the plan phase">
+    Once the discuss artifact is approved, move to plan. The Solution Architect picks up `docs/sa/discuss.md` and produces a concrete implementation design.
+
+    <Tabs>
+      <Tab title="Claude Code / Codex">
+        ```
+        $solution-architect
+
+        Proceed to plan the activity feed endpoint.
+        ```
+      </Tab>
+      <Tab title="Chat API">
+        ```bash title="POST /chat — plan phase"
+        curl -s -X POST http://localhost:5001/chat \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "message": "Proceed to plan the activity feed endpoint.",
+            "phase": "plan",
+            "threadId": "<threadId from previous turn>"
+          }'
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Watch the Solution Architect design the solution">
+    The `$solution-architect` skill grounds the design in what already exists before proposing anything new.
+
+    1. **`simulate_impact`** — models the blast radius of the proposed change across services, routes, and tests so the design accounts for real coupling.
+    2. **`inspect_relationships`** — confirms which service boundaries the FK graph constrains.
+    3. **`search_docs`** then **`get_doc_page`** — checks the existing integration surface so the new endpoint stays consistent with what already ships.
+
+    The plan artifact (`docs/sa/plan.md`) includes:
+
+    - An **API design** — endpoint path, HTTP method, request parameters, and response shape.
+    - A **Mermaid sequence or flow diagram** — the request path through services, grounded in the system model.
+    - A **decision record** for every significant trade-off — alternatives considered, why one won, consequences accepted.
+    - An **execute checklist** — ordered implementation steps the Coder follows.
+  </Step>
+
+  <Step title="Review and approve the plan artifact">
+    Read `docs/sa/plan.md` carefully. Check that the API design matches your conventions, the diagram reflects real services, and the decision records capture the important trade-offs.
+
+    ```bash title="Review the plan artifact"
+    cat docs/sa/plan.md
+    ```
+
+    Do not approve a plan that references a table, column, or service that does not exist in the discuss artifact or the live schema. Ask the agent to revise if anything is invented. Approve only when the checklist is executable by someone who has not read this conversation.
+  </Step>
+
+  <Step title="Execute phase — the Coder implements the approved plan">
+    With the plan approved, the Coder implements the execute checklist from `docs/sa/plan.md` step by step. It writes files into your working tree, runs `workspace_grep` and `workspace_read` to understand the existing code structure, and uses `workspace_write` to create or modify files.
+
+    <Tabs>
+      <Tab title="Claude Code / Codex">
+        ```
+        $backend
+
+        Implement the approved plan in docs/sa/plan.md.
+        ```
+      </Tab>
+      <Tab title="Chat API">
+        ```bash title="POST /chat — execute phase"
+        curl -s -X POST http://localhost:5001/chat \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "message": "Implement the approved plan in docs/sa/plan.md.",
+            "phase": "execute",
+            "threadId": "<threadId from previous turn>"
+          }'
+        ```
+      </Tab>
+    </Tabs>
+
+    The execute artifact (`docs/sa/execute.md`) records what was built, which files were changed, and any deviations from the plan with their justification.
+  </Step>
+
+  <Step title="Test and review">
+    Run the test phase to generate a test plan grounded in the live schema, then the review phase to check the implementation against the plan.
+
+    <Tabs>
+      <Tab title="Claude Code / Codex">
+        ```
+        $test-engineer
+
+        Write the test plan for the activity feed endpoint based on docs/sa/execute.md.
+        ```
+
+        Then, after approving the test artifact:
+
+        ```
+        Review the implementation against docs/sa/plan.md and docs/sa/execute.md.
+        ```
+      </Tab>
+      <Tab title="Chat API">
+        ```bash title="Test phase"
+        curl -s -X POST http://localhost:5001/chat \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "message": "Write the test plan for the activity feed endpoint based on docs/sa/execute.md.",
+            "phase": "test",
+            "threadId": "<threadId from previous turn>"
+          }'
+        ```
+      </Tab>
+    </Tabs>
+
+    The Test Engineer calls `search_docs` and `get_doc_page` to recover the published contract, `describe_tables` and `inspect_relationships` to ground every fixture in real columns, and `run_sql` to sample existing rows for realistic seed data.
+
+    The review phase checks that the implementation matches the approved plan, that all checklist items are complete, and that the test artifact covers the edge cases identified in the discuss phase.
+  </Step>
+
+  <Step title="Ship — commit and open the PR">
+    Once the review phase passes, all phase artifacts are in `docs/sa/` and the implementation is in your working tree. You ship.
+
+    ```bash title="Commit and open the PR"
+    git add .
+    git commit -m "feat: add user activity feed endpoint"
+    git push origin feature/activity-feed
+    # open the PR in your GitHub / GitLab / Bitbucket UI
+    ```
+
+    The decision records in `.sa/decisions/` capture the reasoning behind the design. Commit those alongside the code so future engineers (and future SA Agent sessions) can recover the trade-offs without reading the conversation history.
+  </Step>
+
+</Steps>

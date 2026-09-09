@@ -1,0 +1,84 @@
+---
+title: "SA Agent Schema Tools: Live Database Inspection"
+sidebarTitle: "Schema Tools"
+description: "Four PostgreSQL grounding tools that let SA Agent inspect live tables, columns, and foreign-key relationships before writing SQL or designing APIs."
+---
+
+SA Agent stays grounded in your real database — not assumptions — through four schema tools that read live PostgreSQL metadata at query time. These tools are available on both the `langchain` (Chat GUI) and `mcp-knowledge` (Claude Code / Codex plugin) surfaces. Use them in sequence: discover what exists, describe the columns, map the relationships, then verify your SQL against real data.
+
+## list\_tables
+
+Call `list_tables` first whenever you start a new analysis and don't yet know which tables exist. It returns every table and view in the application database along with column counts and row-estimate statistics — enough to orient SA Agent before it touches anything else.
+
+`list_tables` takes no parameters.
+
+<Tip>
+  Always call `list_tables` at the start of any session involving the database. It is free and gives SA Agent the map it needs before calling `describe_tables` or writing a single line of SQL.
+</Tip>
+
+---
+
+## describe\_tables
+
+`describe_tables` returns the live column definitions for one or more tables: data type, nullability, default value, primary-key flag, and any column comment. SA Agent uses this output to write SQL that references only real columns, and to derive accurate nullability for API response schemas.
+
+<ParamField body="tables" type="string[]" required>
+  An array of exact table names to describe, e.g. `["orders", "order_items"]`. Minimum one entry.
+</ParamField>
+
+<Tip>
+  Always call `describe_tables` before writing SQL or designing an API response schema. Never assume a column name or type — the live definition is the source of truth.
+</Tip>
+
+---
+
+## inspect\_relationships
+
+`inspect_relationships` returns the live foreign-key graph for the schema in both directions: which tables reference which, and which are referenced by which. SA Agent uses this to determine which joins are valid, what the cardinality of each relationship is, and where you can draw service boundaries.
+
+<ParamField body="tables" type="string[]">
+  An optional array of table names to restrict the graph to relationships that touch those tables. Omit the parameter to retrieve the full schema-wide FK graph.
+</ParamField>
+
+<Tip>
+  Call `inspect_relationships` before designing any joins, ER diagrams, or API payloads that span multiple tables. The FK graph tells you which joins are structurally valid and where one-to-many cardinality lies.
+</Tip>
+
+---
+
+## run\_sql
+
+`run_sql` executes a read-only `SELECT` or `WITH` statement against the live database so SA Agent can verify a query or sample real data before handing it to you. The query runs inside a read-only transaction, so `INSERT`, `UPDATE`, `DELETE`, and all DDL statements are rejected at the database level.
+
+<ParamField body="sql" type="string" required>
+  A single `SELECT` or `WITH` statement. Write parameterized queries with `$1`, `$2` placeholders — never interpolate values directly into the SQL string.
+</ParamField>
+
+<Warning>
+  `run_sql` is strictly read-only. Any attempt to execute a write or DDL statement will be rejected. If you need to stage test data or run migrations, use the PVT Prep workflow to generate SQL scripts instead.
+</Warning>
+
+<Tip>
+  Always call `describe_tables` before `run_sql`. SA Agent will confirm that every column referenced in the query actually exists in the live schema before executing it.
+</Tip>
+
+---
+
+## Recommended call order
+
+Follow this sequence for any task that involves the database:
+
+<Steps>
+  <Step title="Discover tables">
+    Call `list_tables` to get an overview of every table and view with column counts and row estimates.
+  </Step>
+  <Step title="Describe candidates">
+    Call `describe_tables` on the tables relevant to your task. Confirm column names, types, and nullability before writing anything.
+  </Step>
+  <Step title="Map relationships">
+    Call `inspect_relationships` to understand the FK graph before designing joins, ER diagrams, or cross-table API payloads.
+  </Step>
+  <Step title="Verify SQL">
+    Call `run_sql` to execute and confirm the shape of any query before including it in a spec or artifact.
+  </Step>
+</Steps>

@@ -1,0 +1,70 @@
+---
+title: "Choose Your SA Agent Runtime"
+sidebarTitle: "Overview"
+description: "Compare SA Agent's three runtimes — Claude Code plugin, Codex plugin, and Chat GUI — and choose the one that fits your workflow and toolchain."
+---
+
+SA Agent runs in three distinct runtimes, each suited to a different working style. The Claude Code and Codex plugins turn your product repo into the workspace: the LLM runs inside the editor, and SA Agent supplies live tools, skills, and memory as a plugin. The Chat GUI takes the opposite approach — a browser interface backed by a LangChain Deep Agent that you talk to over HTTP. All three runtimes share the same tools and the same memory, so your grounding (schema, system model, docs) is consistent regardless of which surface you choose.
+
+## Runtimes at a Glance
+
+| Runtime | LLM Driver | How It Works | Best For |
+|---|---|---|---|
+| **Claude Code** (CLI or GUI) | Claude Code running in your product repo | Plugin supplies tools, skills, and subagents; writes files directly in your workspace | Teams using Claude Code daily; full phase automation with subagents |
+| **Codex** (CLI or ChatGPT desktop) | Codex running in your product repo | Plugin supplies tools and skills; skills drive phase discipline; no subagents | Teams on ChatGPT desktop or the Codex CLI; skill-by-skill phase flow |
+| **Chat GUI** | LangChain Deep Agent behind `POST /chat` | Browser frontend + HTTP backend; vault, artifacts, and local project folders via sidebar | Browser-first workflows; ad-hoc analysis; vault uploads; HITL approval flow |
+
+<Note>
+Neither the Claude Code plugin nor the Codex plugin invokes the LangChain `/chat` agent. They are fully independent runtimes. MCP tool calls from both plugin runtimes still appear in LangSmith — tagged `mcp` plus `claude-code` or `codex` — when `LANGSMITH_TRACING=true`.
+</Note>
+
+## Shared Tools and Memory
+
+All three runtimes load the same tool catalog and memory. You get identical grounding regardless of which runtime you use.
+
+<Accordion title="Schema tools">
+  - `list_tables` — list every table in the configured schema
+  - `describe_tables` — columns, types, and constraints for one or more tables
+  - `inspect_relationships` — foreign keys and join paths between tables
+  - `run_sql` — run a read-only `SELECT` or `WITH` against the live database
+</Accordion>
+
+<Accordion title="Knowledge tools">
+  - `search_docs` — semantic search across indexed Mintlify documentation
+  - `get_doc_page` — fetch a specific documentation page by slug
+  - `search_schema_docs` — search DDL narrative ingested into Chroma
+</Accordion>
+
+<Accordion title="System model tools">
+  - `build_system_model` — (re)build the deterministic dependency graph for a product repo
+  - `query_system_model` — a component's dependencies, dependents, and past decisions
+  - `simulate_impact` — blast radius and risk level for a proposed change
+  - `record_decision` — write the reasoning a diff cannot carry
+  - `search_decisions` — look up why something is built the way it is
+</Accordion>
+
+<Accordion title="Workspace tools">
+  - `workspace_ls` — list files in the attached project folder
+  - `workspace_read` — read a file from the attached project folder
+  - `workspace_grep` — search file content in the attached project folder
+  - `workspace_write` — write a file into the attached project folder
+</Accordion>
+
+<Accordion title="Jira tools">
+  - `get_jira_ticket` — fetch a Jira issue by key (only when you explicitly ask)
+  - `read_jira_user_story` — fetch a user story's acceptance criteria (only when you explicitly ask)
+</Accordion>
+
+## Pick Your Runtime
+
+<CardGroup cols={3}>
+  <Card title="Claude Code" icon="code" href="/runtimes/claude-code">
+    Full subagent automation, phase-by-phase loop, and direct file writes in your product repo. The recommended path for most teams.
+  </Card>
+  <Card title="Codex" icon="square-terminal" href="/runtimes/codex">
+    Skill-driven phases for teams using Codex CLI or the ChatGPT desktop app. Same tools, no subagents.
+  </Card>
+  <Card title="Chat GUI" icon="browser" href="/runtimes/chat-gui">
+    Browser chat backed by the LangChain Deep Agent. Vault, artifacts, HITL interrupts, and local project folders.
+  </Card>
+</CardGroup>

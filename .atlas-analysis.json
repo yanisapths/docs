@@ -1,0 +1,142 @@
+{
+  "projectType": "ai-ml",
+  "projectName": "SA Agent",
+  "projectDescription": "An AI-powered system analyst and solution architect that grounds every answer in your live PostgreSQL schema, codebase graph, and indexed documentation — available as a Chat GUI, a Claude Code plugin, or a Codex plugin.",
+  "theme": "luma",
+  "primaryColor": "#bf3b41",
+  "lightColor": "#f7ecd7",
+  "darkColor": "#090908",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "configuration"
+            ]
+          },
+          {
+            "group": "Runtimes",
+            "pages": [
+              "runtimes/overview",
+              "runtimes/claude-code",
+              "runtimes/codex",
+              "runtimes/chat-gui"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/grounding",
+              "concepts/phases",
+              "concepts/system-model",
+              "concepts/pvt-track"
+            ]
+          },
+          {
+            "group": "Tools & Skills",
+            "pages": [
+              "tools/schema-tools",
+              "tools/knowledge-tools",
+              "tools/system-model-tools",
+              "tools/workspace-tools",
+              "tools/skills"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/first-analysis",
+              "guides/ingest-ddl",
+              "guides/jira-integration",
+              "guides/model-configuration",
+              "guides/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "HTTP API",
+            "pages": [
+              "api/overview",
+              "api/chat",
+              "api/gateway",
+              "api/vault",
+              "api/artifacts",
+              "api/workspaces"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Live PostgreSQL schema grounding — column types, FK graphs, and relationships are always current",
+    "System model — a typed dependency graph of the product repo that answers what connects to what and why",
+    "Six-phase harness loop: discuss → plan → execute → test → review → ship, each with a human approval gate",
+    "PVT prep track for Production Verification Test SQL script generation",
+    "Claude Code and Codex plugin support — bring your own LLM runtime",
+    "Chat GUI with SSE streaming, vault file management, and local project folder attachment",
+    "Engineering decision records — captured reasoning persisted alongside the code graph",
+    "Jira MCP integration for ticket and user story context",
+    "Mintlify documentation search grounding via search_docs and get_doc_page tools",
+    "Flexible model routing — Bifrost gateway, direct Anthropic, or local Ollama"
+  ],
+  "publicApiSurface": [
+    "POST /chat",
+    "POST /chat/resume",
+    "GET /health",
+    "GET /v1/gateway/models",
+    "GET /v1/gateway/quota",
+    "GET /v1/vault/folders",
+    "POST /v1/vault/folders",
+    "DELETE /v1/vault/folders/:folderId",
+    "POST /v1/vault/files",
+    "DELETE /v1/vault/files/:fileId",
+    "GET /v1/vault/mentions",
+    "GET /v1/artifacts/files",
+    "GET /v1/artifacts/files/:fileId",
+    "GET /v1/artifacts/files/:fileId/content",
+    "GET /v1/artifacts/files/:fileId/download",
+    "PUT /v1/artifacts/files/:fileId",
+    "POST /v1/artifacts/files/:fileId/copy",
+    "DELETE /v1/artifacts/files/:fileId",
+    "GET /v1/artifacts/mentions",
+    "GET /v1/workspaces",
+    "POST /v1/workspaces",
+    "POST /v1/workspaces/pick",
+    "DELETE /v1/workspaces/:workspaceId",
+    "GET /v1/workspaces/mentions",
+    "GET /v1/sounds/pending",
+    "GET /v1/sounds/ready",
+    "list_tables",
+    "describe_tables",
+    "inspect_relationships",
+    "run_sql",
+    "search_docs",
+    "get_doc_page",
+    "search_schema_docs",
+    "build_system_model",
+    "query_system_model",
+    "simulate_impact",
+    "record_decision",
+    "search_decisions",
+    "get_jira_ticket",
+    "read_jira_user_story",
+    "workspace_ls",
+    "workspace_read",
+    "workspace_grep",
+    "workspace_write",
+    "bun run ingest:ddl",
+    "bun run model:build",
+    "bun run check:bifrost",
+    "bun run dev"
+  ]
+}

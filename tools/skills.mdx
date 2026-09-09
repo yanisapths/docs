@@ -1,0 +1,103 @@
+---
+title: "SA Agent Skills: On-Demand Phase Guidance"
+sidebarTitle: "Skills"
+description: "SA Agent skills are markdown files that load detailed phase guidance on demand — only when the task matches, keeping the context window lean by default."
+---
+
+SA Agent ships with a set of skills — focused guidance modules that load only when the task at hand calls for them. Each skill is a markdown file with a YAML frontmatter block that describes when to activate it. At startup, SA Agent reads the frontmatter only; the full body loads when a task matches the skill's description. This progressive-disclosure design keeps the context window lean and ensures SA Agent brings deep, role-specific expertise exactly when you need it.
+
+## How skills work
+
+A skill is **not always active**. SA Agent reads the `description` field in each skill's frontmatter at the start of a session to understand when to load the full body. When you send a message that matches a skill's trigger — asking for requirements analysis, an architecture diagram, a test plan, or a PVT script set — SA Agent loads the corresponding skill body and follows its procedure.
+
+You do not need to name a skill explicitly for it to activate. SA Agent infers the right skill from the nature of your request.
+
+---
+
+## Available skills
+
+<AccordionGroup>
+  <Accordion title="$system-analyst">
+    **Trigger:** Use when you ask for requirements, data models, ER diagrams, SQL queries, field-level definitions, or "what data do we have for X."
+
+    The `$system-analyst` skill turns a business request into a precise, implementable specification grounded in the live database. It follows a strict procedure: locate the data with `list_tables` and `describe_tables`, map relationships with `inspect_relationships`, check for existing endpoints with `search_docs` and `get_doc_page`, surface gaps as questions rather than invented answers, write a spec with every field traced to a real column, and verify any SQL with `run_sql` before handing it over.
+
+    A complete system analyst output includes scope, entity definitions, field-to-column mappings with types and nullability, business rules, edge cases, and optionally a Mermaid `erDiagram` built from the live FK graph.
+  </Accordion>
+
+  <Accordion title="$solution-architect">
+    **Trigger:** Use when you ask for a solution design, sequence or flow diagram, technology choice, scalability or security architecture, or how services should interact.
+
+    The `$solution-architect` skill designs system architecture, component boundaries, and integration strategy grounded in the live schema and existing documentation. It grounds every design in `inspect_relationships` (to understand which entities are coupled), reads existing integration surfaces via `search_docs` and `get_doc_page`, states each significant decision with alternatives and the winning trade-off, and always delivers at least one Mermaid diagram — never prose alone.
+
+    Diagram types are chosen by concern: `graph TD` for system components, `flowchart LR` for data or request flow, `sequenceDiagram` for service interactions, `erDiagram` for data models, and `stateDiagram-v2` for lifecycle transitions.
+  </Accordion>
+
+  <Accordion title="$test-engineer">
+    **Trigger:** Use when you ask for test coverage, test cases, test gaps, or test plans.
+
+    The `$test-engineer` skill produces test plans and test fixtures grounded in the real implementation. It uses the system model to identify which components are covered and which are not, and proposes test cases that map to the actual code paths SA Agent can see.
+  </Accordion>
+
+  <Accordion title="$backend">
+    **Trigger:** Use when you ask for an API spec, endpoint design, payload schema, status codes, pagination design, or implementation guidance for a service.
+
+    The `$backend` skill designs and reviews backend API endpoints against the live PostgreSQL schema. It follows existing naming, auth, envelope, and error conventions found in documentation, derives every response field from a real column or a stated derivation rule, verifies the backing query with `run_sql`, and produces a complete contract: auth scheme, all parameters with `in`/`required`/type, and every response code the handler can actually produce including `400`, `401`, `403`, `404`, `409`, and `422`.
+
+    Paths are lowercase, plural, kebab-case. Payload identifiers are camelCase; column names never leak across the API boundary.
+  </Accordion>
+
+  <Accordion title="$system-model">
+    **Trigger:** Use when the task needs the components behind a feature, the blast radius of a change, a risk assessment before planning, or the reasoning behind an existing implementation.
+
+    The `$system-model` skill uses the typed dependency graph in `.sa/system-model.db` and the engineering decisions in `.sa/decisions/` to answer "what connects to what" and "why." It directs the full system-model tool workflow: build the model, query components, search past decisions before proposing changes, simulate impact before planning, and record decisions with the human's reasoning after choices are made.
+  </Accordion>
+
+  <Accordion title="$jira">
+    **Trigger:** Use only when you explicitly ask to get, look up, fetch, or read a Jira ticket or user story.
+
+    The `$jira` skill provides explicit Jira MCP integration for fetching tickets and user stories. SA Agent calls Jira **only** when you explicitly ask for a ticket — it does not call Jira for schema analysis, API design, SQL, or architecture work. Pass the issue key (e.g. `PROJ-123`) and SA Agent will return the summary, status, assignee, description, acceptance criteria, sub-tasks, and links.
+  </Accordion>
+
+  <Accordion title="$pvt-prep">
+    **Trigger:** Use when you ask about PVT, production verification, a PVT window, data prep for production, or SRE-run database scripts.
+
+    The `$pvt-prep` skill prepares a complete Production Verification Test script set — a numbered, owner-tagged collection of SQL files another person can execute in order without asking you anything. It intakes test cases from a CSV, markdown table, or Jira story; grounds every case in the live schema with `describe_tables` and `inspect_relationships`; checks blast radius with `simulate_impact`; groups cases into the smallest set of scenarios that can share a data setup; and sequences scripts with the correct pre-window / in-window split.
+
+    Scripts follow the naming convention `NN-<action>[-pvt-NN]_<owner>.sql`, are idempotent, wrap data changes in `BEGIN; … COMMIT;`, and end with a verification `SELECT`. Rollback scripts are written at the same time as the scripts they undo.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Invoking skills explicitly
+
+Skills activate automatically based on your message. When you want to invoke one explicitly:
+
+<Tabs>
+  <Tab title="Claude Code plugin">
+    Use the `/agents` command in the Claude Code sidebar, then select the relevant agent from the list. The agent loads the corresponding skill body and begins the procedure.
+  </Tab>
+  <Tab title="Codex plugin">
+    Type the skill name in a message, for example:
+
+    ```
+    $system-analyst
+    ```
+
+    SA Agent recognises the skill token and loads the full guidance body for that skill.
+  </Tab>
+  <Tab title="Chat GUI">
+    Describe what you need — SA Agent infers the right skill from your request. You can also name the skill directly in your message, for example: "Use the `$pvt-prep` skill to prepare scripts for these test cases."
+  </Tab>
+</Tabs>
+
+---
+
+## Skills are loaded progressively
+
+Only the frontmatter of each skill file is read at startup. The full body — the procedure, conventions, rules, and examples — loads into the context window only when a task triggers it. This keeps SA Agent's baseline context lean while ensuring that when deep guidance is needed, the complete skill is available.
+
+<Tip>
+  If SA Agent doesn't seem to be following the detailed procedure for a skill, name the skill explicitly in your message. This forces the full body to load even when the automatic trigger is ambiguous.
+</Tip>

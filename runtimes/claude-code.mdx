@@ -1,0 +1,189 @@
+---
+title: "SA Agent Claude Code Plugin Setup Guide"
+sidebarTitle: "Claude Code"
+description: "Install SA Agent as a Claude Code plugin in your product repo, verify the Bifrost gateway, and run phase agents against your live schema."
+---
+
+SA Agent's Claude Code plugin turns your product repo into a fully grounded workspace. Claude Code acts as the LLM; SA Agent provides the tools (schema, docs, system model), skills, subagents, and Bifrost gateway configuration. Everything runs locally — no data leaves your machine except through the gateway you configure. Follow these steps once for the SA Agent checkout, then once per product repo.
+
+<Note>
+Do **not** put `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_BASE_URL` in `~/.zshrc`. Those variables override Bifrost. Always launch with the `scripts/claude` launcher.
+</Note>
+
+## Setup
+
+<Steps>
+  <Step title="Install prerequisites and clone SA Agent">
+    Install [Bun](https://bun.sh) and [Claude Code](https://docs.anthropic.com/en/docs/claude-code/quickstart), then clone the SA Agent checkout to a stable location and install its dependencies.
+
+    ```bash title="One-time clone"
+    git clone <sa-agent-url> ~/agents/sa-agent
+    cd ~/agents/sa-agent/backend
+    bun install
+    cp .env.example .env
+    ```
+
+    Edit `backend/.env` and fill in the required values:
+
+    | Variable | Purpose |
+    |---|---|
+    | `BIFROST_BASE_URL` | Company LLM gateway origin, e.g. `https://inf-bifrost.sandbox.example.com` |
+    | `BIFROST_API_KEY` | Your virtual key |
+    | `BIFROST_AUTH_HEADER` | Header the key travels on — `x-bf-vk` |
+    | `DATABASE_URL` | Full PostgreSQL URI for the app database, e.g. `postgresql://user:pass@host:5432/db` |
+    | `DATABASE_SCHEMA` | Schema to introspect (default `public`) |
+
+    Leave `ANTHROPIC_API_KEY` empty. The launcher copies the Bifrost key for you.
+  </Step>
+
+  <Step title="Set SA_AGENT_HOME in your shell">
+    Add the variable to `~/.zshrc` and reload your shell. Both plugin runtimes require it.
+
+    ```bash title="~/.zshrc"
+    export SA_AGENT_HOME="$HOME/agents/sa-agent"
+    ```
+
+    ```bash
+    source ~/.zshrc
+    ```
+  </Step>
+
+  <Step title="Record the checkout path for GUI hosts">
+    Claude GUI hosts (Cursor and similar) do not expand `${SA_AGENT_HOME}` in `.mcp.json` at launch time. Write the path to a well-known file so the `sa-mcp` launcher can find the checkout when the shell environment is unavailable.
+
+    ```bash
+    mkdir -p ~/.sa-agent
+    echo "$SA_AGENT_HOME" > ~/.sa-agent/home
+    ```
+  </Step>
+
+  <Step title="Verify the gateway">
+    Run the gateway health check before trusting the agent with anything real. This confirms that your virtual key, model id, and tool-use path all work end-to-end.
+
+    ```bash
+    cd "$SA_AGENT_HOME/backend"
+    bun run check:bifrost -- --claude
+    ```
+
+    Expect `anthropic surface` and `tool use` to both pass. If either fails, fix `backend/.env` before continuing — the CLI will fail the same way.
+
+    Optionally list the model ids your key can reach:
+
+    ```bash
+    bun run check:bifrost -- --models
+    ```
+  </Step>
+
+  <Step title="Open your product repo through the launcher">
+    Navigate to your product repo and start Claude Code through the SA Agent launcher. The launcher reads `backend/.env`, sets the Bifrost headers, and then starts Claude — do not use plain `claude`.
+
+    ```bash
+    cd /path/to/product-repo      # e.g. ~/src/admin-service
+    "$SA_AGENT_HOME/backend/scripts/claude"
+    ```
+
+    The launcher prints the active gateway URL, model, and key header:
+
+    ```
+    Claude Code → https://…/anthropic
+      model       dashscope/qwen3.8-max
+      small/fast  huawei/glm-5.2
+      key header  x-bf-vk
+    ```
+
+    Inside Claude, run `/status` and confirm the API base URL ends with `/anthropic`, not `api.anthropic.com`.
+  </Step>
+
+  <Step title="Install the plugin (first time in this product repo)">
+    Still inside the Claude Code session with `cwd` set to your product repo, install the marketplace and the plugin.
+
+    ```
+    /plugin marketplace add ~/agents/sa-agent
+    /plugin install sa-agent@sa-agent
+    ```
+
+    Alternatively, register the marketplace from the shell before launching:
+
+    ```bash
+    cd /path/to/product-repo
+    claude plugin marketplace add "$SA_AGENT_HOME"
+    ```
+
+    Then run `/plugin install sa-agent@sa-agent` from the next Claude session.
+  </Step>
+
+  <Step title="Confirm MCP servers">
+    Run `/mcp` inside Claude and look for `sa-knowledge` in the server list. If you have Jira configured in `backend/.env`, you should also see `jira`.
+
+    ```
+    /mcp
+    ```
+
+    If either server fails to start, run `echo $SA_AGENT_HOME` in the shell that launched Claude and confirm the variable is set. Then check that `backend/.env` is complete.
+  </Step>
+
+  <Step title="Build the system model (optional but recommended)">
+    The system model is a deterministic dependency graph of your product repo. Build it once per repo, then rebuild whenever the codebase moves significantly — agents also call `build_system_model` themselves during the execute phase.
+
+    ```bash
+    cd /path/to/product-repo
+    bun run --cwd "$SA_AGENT_HOME/backend" model:build "$PWD"
+    ```
+
+    Add the generated files to that repo's `.gitignore`. The graph is rebuildable; the decision records are not, so commit those separately.
+
+    ```gitignore title=".gitignore"
+    .sa/*.db
+    .sa/*.db-shm
+    .sa/*.db-wal
+    ```
+  </Step>
+
+  <Step title="Run the phase agents">
+    Type `/agents` inside Claude Code and pick the phase agent that matches where you are in the workflow. Work one phase at a time — approve each artifact before launching the next agent.
+
+    ```
+    /agents
+    ```
+
+    Select from: `system-analyst`, `solution-architect`, `coder`, `test-engineer`, `reviewer`.
+  </Step>
+</Steps>
+
+## Phase Agent Reference
+
+Each phase produces a Markdown artifact in your product repo. Review and approve it before moving to the next phase.
+
+| Goal | Agent Sequence | Writes |
+|---|---|---|
+| **Feature** | `system-analyst` → `solution-architect` → `coder` → `test-engineer` → `reviewer` | `docs/sa/<phase>.md` |
+| **PVT** | `pvt-analyst` → `pvt-planner` → `pvt-scripter` | `docs/sa/pvt-*.md` |
+
+The six-phase loop is: **discuss → plan → execute → test → review → ship**. Each transition requires your approval. You commit the result and open the PR — the agent never pushes.
+
+## Switching Models
+
+The `/model` picker inside Claude Code only lists Claude model names. To switch to a Bifrost model, type the id directly:
+
+```
+/model dashscope/qwen3.8-max
+/model huawei/glm-5.2
+```
+
+Override the defaults permanently in `backend/.env`:
+
+| Variable | Default |
+|---|---|
+| `CLAUDE_BIFROST_MODEL` | `dashscope/qwen3.8-max` (main model) |
+| `CLAUDE_BIFROST_SMALL_MODEL` | `huawei/glm-5.2` (background / plugin subagents) |
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `401 virtual key is required` | You launched plain `claude`. Quit, then use `"$SA_AGENT_HOME/backend/scripts/claude"`. Run `/logout` if a Claude login is stuck. |
+| `404` on every request | The base URL is missing the `/anthropic` path segment. Set `BIFROST_BASE_URL` to the gateway origin only; the launcher appends `/anthropic`. |
+| Still talking to `api.anthropic.com` | The environment is read at startup. Open a new terminal, run the launcher, and unset `ANTHROPIC_AUTH_TOKEN` if it is set. |
+| MCP servers dead or missing | Run `echo $SA_AGENT_HOME` in the launching shell. If it's empty, source `~/.zshrc`. Then verify `backend/.env` is populated. |
+| `/model` picker shows no Qwen models | Type `dashscope/qwen3.8-max` by hand — the picker only lists Claude ids. |
+| `sa-knowledge` starts but `jira` is missing | Jira env vars are not set in `backend/.env`. Jira is optional; the other tools still work without it. |

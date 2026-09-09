@@ -1,0 +1,188 @@
+---
+title: "Vault API: File Storage and Chat Mentions"
+sidebarTitle: "Vault"
+description: "Upload and organise files in the Vault, then reference them inside chat messages using @folder/file mention tokens for the agent to read."
+---
+
+The Vault is a persistent file store backed by Supabase Storage. Upload requirements documents, SQL scripts, CSV exports, or any text file once, then reference them in any chat message with an `@folder/file` mention token — no re-upload needed. The agent mounts vault files on its virtual filesystem so it can read, edit, and write them back during a turn.
+
+All Vault endpoints require `Authorization: Bearer <token>`. Use `VAULT_DEV_TOKEN` for local development, or a Supabase access token in production.
+
+<Note>
+**Setup:** create the `vault` bucket in your Supabase Storage dashboard, then run `sql/vault.sql` in the Supabase SQL editor to create the metadata tables.
+</Note>
+
+---
+
+## Mention format
+
+Include vault files in a `POST /chat` message using the `@folder/file` syntax:
+
+```
+@requirements/schema.sql
+@specs/api-contract.md
+```
+
+The agent receives the file bytes and the file is mounted at `/vault/folder/file` (and `/folder/file`) on the virtual filesystem. The agent can use `read_file`, `edit_file`, and `write_file` against those paths; any edits are written back to the vault.
+
+You can also mention an entire folder — `@requirements` — and all files it contains are resolved and mounted.
+
+**File caps per chat message:** 5 files maximum, 1 MB per file, 4 MB total.
+
+<Warning>
+Send `Authorization: Bearer <token>` with your chat request or vault mentions will not be resolved. The agent receives the literal `@folder/file` text and a note explaining the reference could not be read.
+</Warning>
+
+<Tip>
+`.pdf`, `.docx`, and `.xlsx` files can be uploaded to the vault but are not decoded as UTF-8 text. Export to CSV or Markdown before uploading if you want the agent to read the content.
+</Tip>
+
+---
+
+## Endpoints
+
+### GET /v1/vault/folders
+
+List all folders, optionally filtered by a search query.
+
+**Query parameters**
+
+<ParamField query="q" type="string">
+  Optional search string. Returns folders whose name or description contains the value.
+</ParamField>
+
+```bash title="List all folders"
+curl -s http://localhost:3000/v1/vault/folders \
+  -H 'Authorization: Bearer <token>'
+```
+
+```bash title="Search folders"
+curl -s 'http://localhost:3000/v1/vault/folders?q=requirements' \
+  -H 'Authorization: Bearer <token>'
+```
+
+---
+
+### POST /v1/vault/folders
+
+Create a new folder.
+
+**Request body**
+
+<ParamField body="name" type="string" required>
+  Display name for the folder. Used in `@name/file` mention tokens.
+</ParamField>
+
+<ParamField body="description" type="string">
+  Optional description, shown in the autocomplete suggestions.
+</ParamField>
+
+```bash title="Create a folder"
+curl -s -X POST http://localhost:3000/v1/vault/folders \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "Requirements", "description": "Project requirement documents"}'
+```
+
+---
+
+### DELETE /v1/vault/folders/:folderId
+
+Delete a folder and all files it contains.
+
+```bash title="Delete a folder"
+curl -s -X DELETE http://localhost:3000/v1/vault/folders/folder_abc123 \
+  -H 'Authorization: Bearer <token>'
+```
+
+---
+
+### POST /v1/vault/files
+
+Upload a file to a folder. Send as `multipart/form-data`.
+
+**Form fields**
+
+<ParamField body="folderId" type="string" required>
+  The ID of the destination folder.
+</ParamField>
+
+<ParamField body="file" type="file" required>
+  The file to upload. Maximum 1 MB.
+</ParamField>
+
+<ParamField body="description" type="string">
+  Optional description shown in mention autocomplete.
+</ParamField>
+
+```bash title="Upload a file"
+curl -s -X POST http://localhost:3000/v1/vault/files \
+  -H 'Authorization: Bearer <token>' \
+  -F 'folderId=folder_abc123' \
+  -F 'file=@./schema.sql' \
+  -F 'description=Current production schema DDL'
+```
+
+---
+
+### DELETE /v1/vault/files/:fileId
+
+Delete a single file.
+
+```bash title="Delete a file"
+curl -s -X DELETE http://localhost:3000/v1/vault/files/file_xyz789 \
+  -H 'Authorization: Bearer <token>'
+```
+
+---
+
+### GET /v1/vault/mentions
+
+Autocomplete endpoint for the `@mention` picker in the Chat GUI.
+
+**Query parameters**
+
+<ParamField query="q" type="string">
+  Partial folder or file name to match against.
+</ParamField>
+
+<ParamField query="limit" type="integer">
+  Maximum number of results to return. Defaults to `8`.
+</ParamField>
+
+```bash title="Search mention tokens"
+curl -s 'http://localhost:3000/v1/vault/mentions?q=schema&limit=5' \
+  -H 'Authorization: Bearer <token>'
+```
+
+---
+
+## End-to-end example
+
+Upload a file and then reference it in a chat turn in two steps:
+
+<Steps>
+  <Step title="Upload the file to a vault folder">
+
+```bash title="Upload schema.sql"
+curl -s -X POST http://localhost:3000/v1/vault/files \
+  -H 'Authorization: Bearer <token>' \
+  -F 'folderId=folder_abc123' \
+  -F 'file=@./schema.sql'
+```
+
+  </Step>
+  <Step title="Reference the file in a chat message">
+
+```bash title="Ask the agent to analyse the uploaded file"
+curl -s -X POST http://localhost:3000/chat \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <token>' \
+  -d '{
+    "message": "Review @requirements/schema.sql and suggest missing indexes.",
+    "phase": "discuss"
+  }'
+```
+
+  </Step>
+</Steps>

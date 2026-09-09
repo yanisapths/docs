@@ -1,0 +1,89 @@
+---
+title: "SA Agent Workspace Tools: Local Project File Access"
+sidebarTitle: "Workspace Tools"
+description: "Four tools for listing, reading, searching, and writing files in a locally attached project folder from the SA Agent Chat GUI."
+---
+
+SA Agent can read and write files directly in your local project repository when you attach a project folder. Workspace tools bridge the gap between your codebase on disk and the agent's analysis — SA Agent can navigate the directory tree, read source files, search for patterns, and write generated code back to the right location without you having to copy-paste.
+
+These tools are available on the **`langchain` surface only** (Chat GUI and `POST /v1/workspaces`). They are not available in the Claude Code or Codex MCP plugins.
+
+## Attaching a project folder
+
+Attach a local project folder through the Chat GUI's project panel, or by sending a `POST /v1/workspaces` request with the folder path. Once attached, refer to files in chat as `@Projects/name/relative/path` — SA Agent resolves these references automatically using the workspace tools.
+
+<Note>
+  Workspace tools are only active when a project folder is attached. If no folder is attached, these tools are not available and SA Agent will ask you to attach one before proceeding.
+</Note>
+
+---
+
+## workspace\_ls
+
+`workspace_ls` lists the files and directories in the attached project folder. Use it to orient SA Agent in an unfamiliar codebase, to confirm that a directory exists before reading from it, or to find the right path before writing a file.
+
+<ParamField body="path" type="string">
+  The directory to list, relative to the project root. Defaults to `"."` (the project root). For example: `"src/"` or `"internal/handler/voting"`.
+</ParamField>
+
+<ParamField body="depth" type="integer">
+  How many directory levels to include in the listing. Must be between 1 and 4. Defaults to **2**.
+</ParamField>
+
+---
+
+## workspace\_read
+
+`workspace_read` reads the full text content of a file in the attached project folder. SA Agent uses this to inspect source code, configuration files, and existing implementations before designing changes.
+
+<ParamField body="path" type="string" required>
+  The file path relative to the project root, e.g. `"README.md"` or `"internal/handler/voting/handler.go"`. If the path resolves to a directory rather than a file, the tool returns a directory listing instead.
+</ParamField>
+
+<Tip>
+  If `workspace_read` returns a directory listing instead of file content, the path was wrong. Use `workspace_ls` to locate the correct path and try again.
+</Tip>
+
+---
+
+## workspace\_grep
+
+`workspace_grep` performs a case-insensitive search across file names and file contents in the attached project folder. Use it to find where a function is defined, which files import a module, or which endpoints reference a particular table name.
+
+<ParamField body="pattern" type="string" required>
+  The text to search for. The search is case-insensitive and matches both file names and file contents.
+</ParamField>
+
+<ParamField body="path" type="string">
+  The relative directory to search under. Defaults to `"."` (the entire project). Narrow this to speed up the search in large repos.
+</ParamField>
+
+---
+
+## workspace\_write
+
+`workspace_write` creates or overwrites a file in the attached project folder. Parent directories are created automatically if they do not exist. SA Agent uses this to write generated code, updated configuration files, and SQL scripts back to the right location in your codebase.
+
+<ParamField body="path" type="string" required>
+  The file path to write, relative to the project root, e.g. `"src/orders/service.ts"`.
+</ParamField>
+
+<ParamField body="content" type="string" required>
+  The full file contents to write.
+</ParamField>
+
+<Warning>
+  Do not write files under `.git/`. Do not use `workspace_write` for phase artifacts (those are written with `write_file` to `/artifacts/`) or for human downloads (those use `write_files`). Using the wrong write tool for these outputs will break downstream phase tracking.
+</Warning>
+
+---
+
+## Referencing workspace files in chat
+
+Mention any file from your attached project in a message using the `@Projects/name/relative/path` syntax. SA Agent resolves the reference and reads the file automatically.
+
+```
+@Projects/my-api/src/orders/service.ts
+```
+
+This works for reading context into the conversation. To write a file back to the project, ask SA Agent to call `workspace_write` with the target path and generated content.

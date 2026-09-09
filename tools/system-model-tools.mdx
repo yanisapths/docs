@@ -1,0 +1,133 @@
+---
+title: "SA Agent System Model Tools: Code Graph and Decisions"
+sidebarTitle: "System Model Tools"
+description: "Five tools for building a typed dependency graph, querying components, simulating blast radius, and recording engineering decisions in SA Agent."
+---
+
+SA Agent builds and queries a typed graph of your repository — files, imports, HTTP endpoints, table access, tests, docs, and the live database schema — stored as a SQLite graph in `.sa/system-model.db`. Engineering decisions that explain *why* the code is the way it is live alongside the graph in `.sa/decisions/`. These five tools are available on both the `langchain` (Chat GUI) and `mcp-knowledge` (Claude Code / Codex plugin) surfaces.
+
+## build\_system\_model
+
+`build_system_model` scans the repository and rebuilds the system model from scratch. It resolves route declarations through `app.use` mount prefixes, maps imports to file nodes, links HTTP endpoints to the services and repositories they call, traces table access from queries, and reads the live PostgreSQL schema. The result is a typed graph in `.sa/system-model.db`.
+
+The build is deterministic and calls no model — run it as often as needed without worrying about cost. Run it once before using any of the other system-model tools, and run it again after code changes to keep the graph current.
+
+`build_system_model` takes no parameters. When a local project folder is attached, it scans that folder.
+
+<Note>
+  After the build completes, check two lines in the report:
+  - **"Live schema: not reachable"** — table nodes were inferred from SQL in the code and are unverified. Treat them as provisional and say so in any artifact.
+  - **"Referenced in code but absent from the live schema"** — each one is a real finding: a stale query, a view in another schema, or a typo. Investigate before planning.
+</Note>
+
+---
+
+## query\_system\_model
+
+`query_system_model` looks up a component in the graph and returns what it depends on, what depends on it, and any recorded decisions that reference it. Use it before designing a change to find the real components involved, rather than guessing at file names.
+
+<ParamField body="query" type="string" required>
+  The component to look up. Accepts a class name (`OrderService`), a file path (`internal/handler/orders.go`), a table name (`orders`), a column reference (`orders.user_id`), or an HTTP endpoint (`GET /orders`). Pass `*` for an overview of the whole model and the most-depended-on nodes.
+</ParamField>
+
+<ParamField body="kind" type="string">
+  Restrict matches to one node kind. Valid values include `endpoint`, `service`, `repository`, `module`, `component`, `test`, `doc`, `table`, `column`, and `decision`.
+</ParamField>
+
+<ParamField body="limit" type="integer">
+  Maximum number of results to return. Must be between 1 and 15. Defaults to **5**.
+</ParamField>
+
+---
+
+## simulate\_impact
+
+`simulate_impact` answers the question "what breaks if I change this?" It walks the dependency graph backwards from your target and returns the affected APIs, services, frontend components, tests, and documentation grouped by layer, plus a risk level with the reasoning behind it and any decision records that constrain the area.
+
+<ParamField body="target" type="string" required>
+  What is changing. Accepts a column reference (`orders.user_id`), a class name (`OrderService`), an HTTP endpoint (`GET /orders`), or a file path. Be specific — a column reference produces a narrower, more useful report than a table name.
+</ParamField>
+
+<ParamField body="depth" type="integer">
+  How many dependency hops to follow backwards through the graph. Must be between 1 and 8. Defaults to **4**. Lower the value when a hub node floods the report; raise it when you need to see the far edge of a rename.
+</ParamField>
+
+<Tip>
+  Run `simulate_impact` before the plan phase and include the blast radius in your plan artifact. Pay particular attention to **API rows** (external contracts you do not control), **"No test points at these affected files"** (your test plan for the change), and **decision records that constrain this area** (reasoning you must respect or explicitly argue against).
+</Tip>
+
+<Warning>
+  The system model uses pattern matching, not a compiler. It cannot see routes registered through a factory, table names assembled at runtime, dependency injection by string token, or calls made across a message queue. A quiet impact report on a dynamic codebase is weak evidence, not proof. Confirm structure against the live schema before relying on it.
+</Warning>
+
+---
+
+## record\_decision
+
+`record_decision` writes a markdown decision record in `.sa/decisions/` and links it into the system model graph through the `related` entries. Use it to capture reasoning the code itself cannot show — a deliberate denormalisation, a rejected alternative, a constraint you are accepting.
+
+Always confirm the reason with the human before recording. Do not invent a rationale.
+
+<ParamField body="title" type="string" required>
+  One line in the imperative mood describing what was decided, e.g. `"Store trait results instead of recomputing them"`.
+</ParamField>
+
+<ParamField body="context" type="string" required>
+  The situation that forced a choice — what problem or constraint the team was facing.
+</ParamField>
+
+<ParamField body="decision" type="string" required>
+  What was chosen.
+</ParamField>
+
+<ParamField body="reason" type="string" required>
+  Why this option won, in the team's own words.
+</ParamField>
+
+<ParamField body="alternatives" type="string">
+  What else was considered and why it was rejected.
+</ParamField>
+
+<ParamField body="consequences" type="string">
+  What this decision commits the team to, including the downsides accepted.
+</ParamField>
+
+<ParamField body="related" type="string[]">
+  Nodes this decision constrains: table names, `table.column` references, class names, or `GET /path` endpoints. Each entry is resolved against the graph and surfaces in future impact reports for those nodes. Any entry that resolves to nothing is reported back — fix it rather than leaving a dead link.
+</ParamField>
+
+---
+
+## search\_decisions
+
+`search_decisions` searches the recorded decision records for the reasoning behind an existing implementation. It answers "why is this like this?" where the graph and the schema answer only "what" and "where". Check it before proposing any change that might contradict a past choice.
+
+<ParamField body="query" type="string" required>
+  The topic, table name, component name, or question you are investigating, e.g. `"trait results scoring"` or `"why is user_id nullable on orders"`.
+</ParamField>
+
+<ParamField body="limit" type="integer">
+  Maximum number of results to return. Must be between 1 and 10. Defaults to **5**.
+</ParamField>
+
+---
+
+## Recommended workflow
+
+<Steps>
+  <Step title="Build the model">
+    Call `build_system_model` once before the other tools. Read the report for missing schema references and unreachable live schema warnings.
+  </Step>
+  <Step title="Find the real components">
+    Call `query_system_model` with the class name, file path, table, or endpoint you are working with. Use `*` for an overview.
+  </Step>
+  <Step title="Check for existing decisions">
+    Call `search_decisions` on the topic before proposing any change. If a decision covers the area, either respect it or argue against it explicitly — do not silently reverse it.
+  </Step>
+  <Step title="Simulate the blast radius">
+    Call `simulate_impact` on every element you intend to touch. Include the affected layers and risk level in your plan artifact.
+  </Step>
+  <Step title="Record the reasoning">
+    After a decision is made, call `record_decision` with the human's own reasoning to preserve the rationale for future contributors.
+  </Step>
+</Steps>

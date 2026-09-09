@@ -1,0 +1,149 @@
+---
+title: "SA Agent Codex Plugin Setup and Usage Guide"
+sidebarTitle: "Codex"
+description: "Install SA Agent as a Codex plugin for the Codex CLI or ChatGPT desktop app, trust the hooks, and drive analysis phases skill by skill."
+---
+
+The Codex plugin gives you SA Agent's full tool catalog — live schema, system model, docs, and Jira — inside the Codex CLI or the ChatGPT desktop app. Codex acts as the LLM; SA Agent supplies the MCP servers, skills, and memory. There are no subagents in this runtime: phase discipline comes from the skills you invoke and from the `memory/AGENTS.md` rules that are injected at session start once you trust the hooks.
+
+<Note>
+Codex spawns MCP servers with a stripped environment and passes their arguments verbatim — it does not expand `${SA_AGENT_HOME}`. You must write the checkout path to `~/.sa-agent/home` before the servers will start reliably.
+</Note>
+
+## Setup
+
+<Steps>
+  <Step title="Prerequisites: clone SA Agent and set SA_AGENT_HOME">
+    If you have already cloned SA Agent for the Claude Code plugin, skip to step 2. Otherwise, clone the checkout, install dependencies, and configure the environment.
+
+    ```bash title="One-time clone"
+    git clone <sa-agent-url> ~/agents/sa-agent
+    cd ~/agents/sa-agent/backend
+    bun install
+    cp .env.example .env
+    ```
+
+    Edit `backend/.env` with your database URI and Bifrost credentials (see the [Claude Code setup guide](/runtimes/claude-code) for the full variable reference), then add `SA_AGENT_HOME` to your shell:
+
+    ```bash title="~/.zshrc"
+    export SA_AGENT_HOME="$HOME/agents/sa-agent"
+    ```
+
+    ```bash
+    source ~/.zshrc
+    ```
+  </Step>
+
+  <Step title="Record the checkout path">
+    Codex strips the environment of spawned MCP servers and does not expand shell variables in plugin arguments. Write the checkout path to a file that the `sa-mcp` launcher reads as a fallback.
+
+    ```bash
+    mkdir -p ~/.sa-agent
+    echo "$SA_AGENT_HOME" > ~/.sa-agent/home
+    ```
+
+    This step is required. If neither `SA_AGENT_HOME` nor `~/.sa-agent/home` resolves, every MCP server exits immediately with an error asking you to set the variable.
+  </Step>
+
+  <Step title="Register the marketplace from your product repo">
+    Navigate to the product repo you want to work in and add the SA Agent checkout as a plugin marketplace.
+
+    ```bash
+    cd /path/to/product-repo
+    codex plugin marketplace add "$SA_AGENT_HOME"
+    ```
+
+    The marketplace is named `sa-agent` and exposes one plugin, also named `sa-agent`.
+  </Step>
+
+  <Step title="Install the plugin">
+    Install the plugin from the marketplace you just registered.
+
+    ```bash
+    codex plugin add sa-agent --marketplace sa-agent
+    ```
+
+    This writes `.mcp.codex.json` into the product repo. The file is generated from the same template as Claude Code's `.mcp.json` but uses runtime `codex`.
+  </Step>
+
+  <Step title="Confirm the installation">
+    Verify the plugin is listed, then open a session and check that the MCP servers are active.
+
+    ```bash
+    codex plugin list --marketplace sa-agent
+    ```
+
+    Inside a Codex session, run:
+
+    ```
+    /mcp
+    ```
+
+    Look for `sa-knowledge` in the output. If you have Jira configured, `jira` should also appear. If a server exits immediately, check that `~/.sa-agent/home` exists and that `backend/.env` is complete.
+  </Step>
+
+  <Step title="ChatGPT desktop setup">
+    The ChatGPT desktop app reads the same Codex marketplace configuration. After completing steps 3–4 above:
+
+    1. Fully restart the ChatGPT desktop app.
+    2. Open **Plugins Directory**.
+    3. Find the source named **sa-agent** and install the **sa-agent** plugin.
+
+    The app uses `.mcp.codex.json` to spawn the MCP servers the same way the CLI does.
+  </Step>
+
+  <Step title="Trust the hooks">
+    Plugin-bundled hooks are untrusted by default in both Codex and ChatGPT desktop. Until you review and approve the hook, `memory/AGENTS.md` — which carries the six-phase loop rules and grounding constraints — is not injected at session start.
+
+    When Codex prompts you to review plugin hooks, inspect them and approve. The hook content is in `backend/agents/claude/hooks/`. Once trusted, grounding rules load automatically on every session start.
+  </Step>
+
+  <Step title="Run phases with skills">
+    Invoke skills one at a time. Each skill loads a focused prompt that drives the phase. Approve the artifact the skill produces before invoking the next skill.
+
+    ```
+    $system-analyst
+    ```
+
+    Available skills:
+
+    | Skill | Phase | What it produces |
+    |---|---|---|
+    | `$system-analyst` | Discuss | Requirements analysis grounded in live schema |
+    | `$solution-architect` | Plan | Architecture decision and component design |
+    | `$test-engineer` | Test | Test plan and fixture SQL |
+    | `$backend` | Execute | API and endpoint implementation guidance |
+    | `$jira` | Any | Jira ticket or user story fetch (explicit only) |
+    | `$pvt-prep` | PVT track | Production Verification Test scripts |
+    | `$system-model` | Any | System model queries and impact analysis |
+
+    Approve the artifact written to `docs/sa/<phase>.md` before moving on. You commit the result and open the PR.
+  </Step>
+</Steps>
+
+## Differences from Claude Code
+
+<Tabs>
+  <Tab title="What works the same">
+    - All MCP tools (`list_tables`, `describe_tables`, `inspect_relationships`, `run_sql`, `search_docs`, `build_system_model`, and every other tool in the catalog) work identically.
+    - Skills and memory are the same files — `claude/skills/` is a symlink to the shared `resources/` directory.
+    - LangSmith tracing records each MCP tool call as a tool run, tagged `mcp` and `codex`, when `LANGSMITH_TRACING=true` in `backend/.env`.
+    - The system model (`build_system_model`, `simulate_impact`, `search_decisions`) is fully available.
+  </Tab>
+  <Tab title="What is different">
+    - **No subagents.** Codex has no plugin equivalent of Claude Code's `agents/*.md` subagents. Phase discipline is your responsibility: invoke skills in order and approve each artifact before the next one.
+    - **Execute and review phases.** In the Claude Code runtime, `coder` and `reviewer` subagents run autonomously. In Codex, you drive execute and review yourself, guided by the approved plan artifact and the `$backend` skill.
+    - **Environment stripping.** Codex strips the environment from spawned MCP servers. The `~/.sa-agent/home` fallback file is required (step 2).
+    - **Hook trust prompt.** Codex treats all plugin hooks as untrusted until you explicitly approve them. Expect a prompt on first use.
+  </Tab>
+</Tabs>
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| MCP server exits asking you to set `SA_AGENT_HOME` | Neither the variable nor `~/.sa-agent/home` resolved. Run `echo "$SA_AGENT_HOME"` — if empty, source `~/.zshrc`. Then verify `~/.sa-agent/home` contains the correct path. |
+| MCP server starts but fails with env errors | `backend/.env` is incomplete. Check `DATABASE_URL`, `BIFROST_BASE_URL`, and `BIFROST_API_KEY`. |
+| `memory/AGENTS.md` rules not loading | The plugin hook has not been trusted. Review and approve the hook when Codex prompts you, or re-trigger the approval from the plugins settings screen. |
+| `jira` server missing from `/mcp` | Jira is optional. Set `JIRA_URL` plus credentials in `backend/.env` to enable it. |
+| ChatGPT desktop does not see the plugin | Restart the app fully after registering the marketplace with `codex plugin marketplace add`. |

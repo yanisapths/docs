@@ -1,0 +1,75 @@
+---
+title: "SA Agent HTTP API Reference Overview"
+sidebarTitle: "Overview"
+description: "Explore the SA Agent HTTP API: base URL conventions, authentication requirements, available endpoint groups, and content-type options."
+---
+
+The SA Agent backend exposes a set of HTTP endpoints that let you send analysis requests, stream phase-by-phase reasoning over SSE, manage uploaded files in the Vault, retrieve phase output Artifacts, and attach local project folders as Workspaces. Every endpoint speaks JSON; a few also accept multipart form data for file uploads or Server-Sent Events for streamed responses.
+
+## Base URL
+
+By default the server starts on port `3000`. Set the `PORT` environment variable to use a different value.
+
+```
+http://localhost:3000
+```
+
+All paths in this reference are relative to that base URL.
+
+## Authentication
+
+Different endpoint groups have different authentication requirements. Auth is always an `Authorization: Bearer <token>` header — use `VAULT_DEV_TOKEN` locally, or a Supabase access token in production.
+
+| Group | Auth required |
+|---|---|
+| `GET /health` | None |
+| `POST /chat`, `POST /chat/resume` | Optional — required only when the message contains vault `@mentions` |
+| `GET /v1/gateway/*` | Optional |
+| `GET /v1/vault/*`, `POST /v1/vault/*`, `DELETE /v1/vault/*` | **Required** |
+| `GET /v1/artifacts/*`, `PUT /v1/artifacts/*`, `POST /v1/artifacts/*`, `DELETE /v1/artifacts/*` | **Required** |
+| `GET /v1/workspaces`, `POST /v1/workspaces`, `DELETE /v1/workspaces/*` | **Required** |
+| `GET /v1/sounds/*` | **Required** |
+
+<Warning>
+Chat and Gateway endpoints are `optionalAuth`. Sending an unsigned chat request with vault `@mentions` will leave those tokens as literal text rather than resolving them to file content. For any production deployment, add `requireAuth` to the Gateway `/quota` endpoint before exposing it outside localhost — it reveals key budget and spend.
+</Warning>
+
+## Content Types
+
+| Scenario | Header |
+|---|---|
+| Structured JSON request body | `Content-Type: application/json` |
+| File upload (Vault) | `Content-Type: multipart/form-data` |
+| Chat with file attachments | `Content-Type: multipart/form-data` |
+| Request JSON response from chat | `Accept: application/json` (default) |
+| Request SSE stream from chat | `Accept: text/event-stream` |
+
+## Endpoint Groups
+
+<CardGroup cols={2}>
+  <Card title="Chat" icon="message" href="/api/chat">
+    Send messages, stream phase reasoning over SSE, and resume human-in-the-loop interrupts. The core interface for all agent interactions.
+  </Card>
+  <Card title="Gateway" icon="bolt" href="/api/gateway">
+    Discover the chat models your virtual key can reach and monitor budget consumption per model and provider.
+  </Card>
+  <Card title="Vault" icon="folder-open" href="/api/vault">
+    Upload files and organise them into folders. Reference any uploaded file inside a chat message using `@folder/file` mention tokens.
+  </Card>
+  <Card title="Artifacts" icon="file-lines" href="/api/artifacts">
+    Browse, download, edit, and version the phase output files the agent produces during a thread — specs, SQL scripts, diagrams, and more.
+  </Card>
+  <Card title="Workspaces" icon="code" href="/api/workspaces">
+    Register local project folders so the agent's workspace tools (`workspace_ls`, `workspace_read`, `workspace_grep`, `workspace_write`) can read and modify them.
+  </Card>
+</CardGroup>
+
+## Health Check
+
+The `/health` endpoint requires no authentication and returns immediately. Use it to confirm the backend is running.
+
+```bash
+curl http://localhost:3000/health
+```
+
+A `200 OK` response means the server is up and accepting requests.

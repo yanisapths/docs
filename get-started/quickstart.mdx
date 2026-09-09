@@ -1,0 +1,149 @@
+---
+title: "Get Started with SA Agent in 10 Minutes"
+sidebarTitle: "Quickstart"
+description: "Clone SA Agent, point it at your PostgreSQL database, choose a runtime, and run your first schema analysis — all in under ten minutes."
+---
+
+This guide walks you through standing up SA Agent from scratch. By the end you will have the backend running locally, a `.env` configured with your database and model credentials, and a confirmed response from the agent.
+
+<Steps>
+
+### Check prerequisites
+
+Make sure you have the following before you begin:
+
+- **[Bun](https://bun.sh)** — the backend, MCP servers, and ingestion scripts all run on Bun
+- **Node.js 20+** — required for the Next.js frontend if you want the Chat GUI
+- **PostgreSQL URI** — a full connection string (`postgresql://user:password@host:5432/database`); a read-only role is strongly recommended
+- **A model credential** — either a Bifrost virtual key (`BIFROST_API_KEY`) for your company gateway, or an Anthropic API key if you plan to use `anthropic:claude-haiku-4-5` directly
+
+You do not need both model credentials. If `BIFROST_BASE_URL` and `BIFROST_API_KEY` are set, every phase routes through the gateway by default.
+
+### Clone and install
+
+SA Agent is a provider checkout — keep it somewhere stable because your product repos will point at it.
+
+```bash title="Clone and install"
+git clone <this-repo> ~/agents/sa-agent
+cd ~/agents/sa-agent/backend
+bun install
+cp .env.example .env
+```
+
+### Edit your .env
+
+Open `backend/.env` in your editor. The minimum viable config requires only three variables for schema tools and the chat agent:
+
+```bash title="backend/.env — required keys"
+# Your application database
+DATABASE_URL=postgresql://user:password@host:5432/database
+DATABASE_SCHEMA=public
+
+# Company LLM gateway (Bifrost)
+BIFROST_BASE_URL=https://your-bifrost.example.com
+BIFROST_API_KEY=<your-virtual-key>
+
+# Only needed if a model id uses `anthropic:…` directly
+# ANTHROPIC_API_KEY=
+```
+
+<Note>
+  Use a **read-only PostgreSQL role** for `DATABASE_URL`. SA Agent only needs `SELECT` — using a role without write access limits blast radius if a query escapes the `run_sql` read-only guard.
+</Note>
+
+`DATABASE_URL` must be a full URI, not a bare hostname. The backend rejects a bare hostname at the first query rather than silently failing on a DNS error.
+
+### Set SA_AGENT_HOME in your shell
+
+Both plugin runtimes (Claude Code and Codex) need to know where the checkout lives. Set this once and add it to your shell profile:
+
+```bash title="~/.zshrc or ~/.bashrc"
+export SA_AGENT_HOME="$HOME/agents/sa-agent"
+```
+
+Reload your shell or `source ~/.zshrc` before continuing. The Codex runtime also writes this path to `~/.sa-agent/home` as a fallback since Codex strips the spawned server environment:
+
+```bash title="Codex fallback path"
+mkdir -p ~/.sa-agent
+echo "$SA_AGENT_HOME" > ~/.sa-agent/home
+```
+
+### Choose your runtime
+
+Pick the runtime that matches how you work:
+
+<CardGroup cols={3}>
+  <Card title="Claude Code Plugin" icon="code" href="/runtimes/claude-code">
+    Work inside a product repo. SA Agent writes specs and SQL directly into the repo tree. Supports subagents and the full phase loop.
+  </Card>
+  <Card title="Codex Plugin" icon="robot" href="/runtimes/codex">
+    Use with the Codex CLI or ChatGPT desktop. Skills and MCP tools load from the same marketplace. Execute and review phases are driven by you against the approved plan.
+  </Card>
+  <Card title="Chat GUI" icon="message" href="/runtimes/chat-gui">
+    Browser chat over HTTP. Supports vault file mentions, artifacts, session threads, and local project folders. The backend must run on the same machine as your folders.
+  </Card>
+</CardGroup>
+
+### Start the backend
+
+```bash title="Start the backend"
+cd "$SA_AGENT_HOME/backend"
+bun run dev
+```
+
+The server listens on port `3000` by default. Check it is up:
+
+```bash title="Health check"
+curl -s http://localhost:3000/health
+```
+
+You should see `{ "ok": true }` (or similar). If the database connection fails, the agent still starts and reports the unreachable dependency in tool output rather than crashing.
+
+### Send your first message
+
+With the backend running, send a message to the chat endpoint:
+
+```bash title="First message — list tables"
+curl -s -X POST http://localhost:3000/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "List the tables in the database."}'
+```
+
+The response includes a `threadId`. Pass it on your next turn to continue the same session:
+
+```bash title="Continue the session"
+curl -s -X POST http://localhost:3000/chat \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "message": "Describe the columns on the orders table.",
+    "threadId": "<threadId from previous response>"
+  }'
+```
+
+To stream responses as Server-Sent Events instead of waiting for the full reply, add `Accept: text/event-stream`:
+
+```bash title="Streaming response"
+curl -s -X POST http://localhost:3000/chat \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: text/event-stream' \
+  -d '{"message": "What breaks if I rename orders.user_id?"}'
+```
+
+</Steps>
+
+## What to do next
+
+<CardGroup cols={2}>
+  <Card title="Configuration reference" icon="sliders" href="/get-started/configuration">
+    Configure model overrides per phase, optional integrations like Jira and LangSmith, and the Supabase vault.
+  </Card>
+  <Card title="Build the system model" icon="diagram-project" href="/concepts/system-model">
+    Run `model:build` in a product repo to give the agent a dependency graph and blast-radius analysis.
+  </Card>
+  <Card title="Ingest your DDL" icon="database" href="/guides/ingest-ddl">
+    Run `ingest:ddl` to index your DDL narrative into Chroma so `search_schema_docs` has context.
+  </Card>
+  <Card title="Tools reference" icon="wrench" href="/tools/schema-tools">
+    Full reference for every tool the agent can call, grouped by grounding layer.
+  </Card>
+</CardGroup>

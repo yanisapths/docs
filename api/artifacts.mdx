@@ -1,0 +1,178 @@
+---
+title: "Artifacts API: Phase Outputs and File Management"
+sidebarTitle: "Artifacts"
+description: "Retrieve, edit, version, copy, download, and delete the phase output files the SA Agent produces during a thread using the Artifacts REST API."
+---
+
+Artifacts are the structured outputs the agent produces at each phase of the six-phase loop: discussion scopes, architecture plans, migration scripts, test cases, and review findings. Each phase writes one or more artifact files to Supabase Storage; the Artifacts API gives you full CRUD access to those files, including version history and an in-place edit endpoint that creates a new version on every write.
+
+All Artifacts endpoints require `Authorization: Bearer <token>`.
+
+<Note>
+**Setup:** create the `artifacts` bucket in your Supabase Storage dashboard, then run `sql/artifacts.sql` in the Supabase SQL editor to create the metadata tables.
+</Note>
+
+---
+
+## Mention format
+
+Reference an artifact in a `POST /chat` message using the `@Artifacts/{filename}` syntax:
+
+```
+@Artifacts/plan.md
+@Artifacts/migration-v2.sql
+```
+
+The agent resolves the mention to the latest version of the file and mounts it on the virtual filesystem for the turn.
+
+---
+
+## Endpoints
+
+### GET /v1/artifacts/files
+
+List all artifact files associated with a thread.
+
+**Query parameters**
+
+<ParamField query="threadId" type="string" required>
+  The thread ID whose artifacts you want to list.
+</ParamField>
+
+```bash title="List artifacts for a thread"
+curl -s 'http://localhost:3000/v1/artifacts/files?threadId=thread_abc123' \
+  -H 'Authorization: Bearer <token>'
+```
+
+---
+
+### GET /v1/artifacts/files/:fileId
+
+Get the metadata for a single artifact file: name, MIME type, version count, creation time, and the thread it belongs to.
+
+```bash title="Get artifact metadata"
+curl -s http://localhost:3000/v1/artifacts/files/artifact_xyz789 \
+  -H 'Authorization: Bearer <token>'
+```
+
+---
+
+### GET /v1/artifacts/files/:fileId/content
+
+Get the text content of an artifact. Returns the latest version by default.
+
+**Query parameters**
+
+<ParamField query="version" type="integer">
+  Specific version number to retrieve. Omit to get the latest.
+</ParamField>
+
+```bash title="Get latest content"
+curl -s http://localhost:3000/v1/artifacts/files/artifact_xyz789/content \
+  -H 'Authorization: Bearer <token>'
+```
+
+```bash title="Get a specific version"
+curl -s 'http://localhost:3000/v1/artifacts/files/artifact_xyz789/content?version=2' \
+  -H 'Authorization: Bearer <token>'
+```
+
+---
+
+### GET /v1/artifacts/files/:fileId/download
+
+Download the artifact as a file attachment. Useful for saving SQL scripts, Markdown documents, or Mermaid diagrams to disk.
+
+**Query parameters**
+
+<ParamField query="version" type="integer">
+  Specific version to download. Omit for the latest.
+</ParamField>
+
+```bash title="Download an artifact"
+curl -s -O -J \
+  http://localhost:3000/v1/artifacts/files/artifact_xyz789/download \
+  -H 'Authorization: Bearer <token>'
+```
+
+---
+
+### PUT /v1/artifacts/files/:fileId
+
+Update the text content of an artifact. Each successful `PUT` creates a new version; previous versions remain accessible via the `version` query parameter on the content and download endpoints.
+
+**Request body**
+
+<ParamField body="content" type="string" required>
+  The full replacement text content for the artifact.
+</ParamField>
+
+```bash title="Update artifact content"
+curl -s -X PUT http://localhost:3000/v1/artifacts/files/artifact_xyz789 \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"content": "# Revised plan\n\nUpdated architecture section..."}'
+```
+
+---
+
+### POST /v1/artifacts/files/:fileId/copy
+
+Copy an artifact, optionally renaming it. The copy is created at version 1 with the latest content of the source.
+
+**Request body**
+
+<ParamField body="name" type="string">
+  New filename for the copy. Omit to use the original name with a numeric suffix.
+</ParamField>
+
+```bash title="Copy an artifact"
+curl -s -X POST http://localhost:3000/v1/artifacts/files/artifact_xyz789/copy \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "migration-v3.sql"}'
+```
+
+---
+
+### DELETE /v1/artifacts/files/:fileId
+
+Delete an artifact and all of its versions.
+
+```bash title="Delete an artifact"
+curl -s -X DELETE http://localhost:3000/v1/artifacts/files/artifact_xyz789 \
+  -H 'Authorization: Bearer <token>'
+```
+
+---
+
+### DELETE /v1/artifacts/files/:fileId/versions/:version
+
+Delete a single version of an artifact without removing other versions. Useful for pruning intermediate drafts while keeping the current version intact.
+
+```bash title="Delete a specific version"
+curl -s -X DELETE \
+  http://localhost:3000/v1/artifacts/files/artifact_xyz789/versions/2 \
+  -H 'Authorization: Bearer <token>'
+```
+
+---
+
+### GET /v1/artifacts/mentions
+
+Autocomplete endpoint for the `@Artifacts/` mention picker in the Chat GUI.
+
+**Query parameters**
+
+<ParamField query="q" type="string">
+  Partial filename to match against.
+</ParamField>
+
+<ParamField query="limit" type="integer">
+  Maximum number of results to return. Defaults to `8`.
+</ParamField>
+
+```bash title="Search artifact mentions"
+curl -s 'http://localhost:3000/v1/artifacts/mentions?q=plan&limit=5' \
+  -H 'Authorization: Bearer <token>'
+```

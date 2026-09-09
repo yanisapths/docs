@@ -1,0 +1,136 @@
+---
+title: "The SA Agent System Model: Code Graph and Impact Analysis"
+sidebarTitle: "System Model"
+description: "SA Agent builds a typed dependency graph of your repo — endpoints, services, repositories, tables, tests, and decisions — to answer what connects to what and why."
+---
+
+The system model is SA Agent's third grounding source, alongside the live database and indexed documentation. Where the live schema answers "what columns exist" and the docs index answers "what did we write down," the system model answers two questions the others cannot: **what connects to what**, and **why is it like this**.
+
+## What the system model contains
+
+The system model is a typed dependency graph of your product repo. A build scans the repo deterministically and reconciles findings with the live PostgreSQL schema. Every node and edge is either scanned from the repo, read from the live database, or written by a human. Nothing is inferred by a model, so two builds of the same commit always produce an identical graph.
+
+Nodes fall into these kinds:
+
+| Kind | What it represents |
+|---|---|
+| `endpoint` | HTTP route declaration |
+| `service` | Backend service file |
+| `repository` | Data access layer |
+| `component` | Frontend component |
+| `module` | General code module |
+| `test` | Test file |
+| `doc` | Documentation page |
+| `table` | Database table (confirmed against live schema) |
+| `column` | Database column |
+| `decision` | Recorded engineering decision |
+
+Edges always point **from the dependent to the dependency**: an endpoint depends on the service that handles it; a service depends on the repository it imports; a repository depends on the tables it queries. This direction makes impact analysis a single reverse-reachability query — no special cases per edge type.
+
+```
+Endpoint ──handled_by──► Service ──imports──► Repository ──queries──► Table ──has_column──► Column
+   ▲                                                                      ▲
+   └──calls── Component (frontend)                       Decision ──decides──┘
+```
+
+## What the system model answers
+
+Use the system model when you need to know:
+
+- Which services call a given endpoint
+- Which repositories query a given table
+- Which frontend components depend on a given service
+- What the blast radius of changing a column would be, across API, backend, frontend, tests, docs, and decisions
+- Why an architectural decision was made — the context, the rejected alternatives, the stated reason
+
+## How to build it
+
+Run the build command from inside your product repo (not the SA Agent repo):
+
+```bash title="Build the system model for the current repo"
+bun run --cwd "$SA_AGENT_HOME/backend" model:build "$PWD"
+```
+
+The build has three steps:
+
+1. **Scan** — walks the repo for files, imports, HTTP route declarations (resolved through `app.use` mount prefixes), SQL and ORM table references, tests, and documentation pages. Pattern matching only — no compiler, no model, no network.
+2. **Schema** — reads tables, columns, and foreign keys from your live PostgreSQL instance.
+3. **Reconcile** — checks every table named in code against the live schema. A table that appears in SQL but is absent from the database is reported in the build output and not added as a node.
+
+<Note>
+  The reconciliation rule — "report, never add" — is how SA Agent enforces
+  "never invent a table" as a build invariant rather than an instruction.
+  If you see a table in the unknown list, investigate before planning anything
+  that depends on it.
+</Note>
+
+## Where the model is stored
+
+The build writes two things inside your **product repo**, not the SA Agent repo:
+
+- `.sa/system-model.db` — the SQLite graph. Rebuildable from source, so gitignore it.
+- `.sa/decisions/*.md` — engineering decision records. Not rebuildable, so commit them.
+
+Add the following to your product repo's `.gitignore`:
+
+```gitignore title=".gitignore"
+.sa/*.db
+.sa/*.db-shm
+.sa/*.db-wal
+```
+
+## The tools
+
+<CardGroup cols={2}>
+  <Card title="build_system_model" icon="hammer">
+    Rebuild the graph from the current repo state. Free and deterministic — run it after any significant code change.
+  </Card>
+  <Card title="query_system_model" icon="magnifying-glass">
+    Inspect a node's dependencies, dependents, and related decisions. Pass `*` for a full repo overview.
+  </Card>
+  <Card title="simulate_impact" icon="bolt">
+    Compute the blast radius of a change by layer (API, Backend, Database, Frontend, Tests, Documentation, Decisions) and return a risk level.
+  </Card>
+  <Card title="record_decision" icon="file-pen">
+    Write a decision record when a choice has a rationale the code cannot carry — a denormalisation, a rejected alternative, a deliberate constraint. Always use the human's words for the reason.
+  </Card>
+  <Card title="search_decisions" icon="clock-rotate-left">
+    Query existing decision records. Run this before proposing a change that contradicts the current design — there may be a recorded reason, and reversing it requires an argument against it.
+  </Card>
+</CardGroup>
+
+## Impact analysis
+
+`simulate_impact` walks the graph backwards from a node — from dependency back to all dependents — and groups results by layer. The output includes a risk level based on how many layers are touched and whether any affected node is a production table or a public API endpoint.
+
+```
+simulate_impact("orders.user_id")
+  → column ← table ← repository ← service ← endpoint ← frontend component
+                                        ↑
+                                   tests, docs, decisions
+```
+
+Every plan SA Agent produces includes an **Impact and risk** section generated by `simulate_impact` on every node the change touches. A plan that does not state its blast radius is not a plan.
+
+## Decision records
+
+Decision records are the memory of your architecture. When an engineer makes a choice that the code cannot explain — why a table is denormalised, why an alternative was rejected, why a constraint was added — `record_decision` writes a structured Markdown file to `.sa/decisions/`.
+
+Decision records are committed and reviewed alongside code. They are indexed into the graph and linked to the nodes they constrain. The review phase checks whether any proposed change reverses a decision without arguing against it.
+
+<Warning>
+  Decision records are **not rebuildable**. If you delete `.sa/decisions/*.md`
+  without committing them, that reasoning is gone permanently. Commit the
+  decisions directory; gitignore only the `.db` files.
+</Warning>
+
+## What the system model does not see
+
+The scan is pattern-matching, not a compiler. The following are invisible to the graph:
+
+- Routes registered through a factory or assembled at runtime
+- Table names constructed dynamically (string concatenation, template literals)
+- Dependency injection resolved by string token
+- Service boundaries that cross a message queue or event bus
+
+A quiet impact report — few or no affected nodes — is weak evidence of safety, not proof. Always pair it with a manual review of the areas the graph cannot reach.

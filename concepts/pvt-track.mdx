@@ -1,0 +1,166 @@
+---
+title: "Production Verification Test Prep with SA Agent"
+sidebarTitle: "PVT Track"
+description: "SA Agent's PVT prep track generates staged SQL scripts for Production Verification Tests in three phases — pvt-discuss, pvt-plan, and pvt-execute."
+---
+
+The PVT prep track is a second, parallel workflow within SA Agent, entirely separate from the main six-phase harness loop. Its goal is to prepare Production Verification Tests: numbered SQL scripts that another team — typically SRE or DevOps — runs against production during a maintenance window.
+
+## Why the PVT track is separate
+
+The main harness loop ends in committed code and an open pull request. The PVT track ends in SQL scripts. It never reaches code execution or code review, and it never writes to a database. Because the output and audience are different, the phases, artifacts, and constraints are different too.
+
+The window is the scarce resource. Every script an SRE runs costs window time. Every question they have to ask you mid-window is a defect in the plan. The PVT track exists to make the window as short and uneventful as possible.
+
+## The three PVT phases
+
+```
+[pvt-discuss] ── pvt-discuss.md ──► [pvt-plan] ── pvt-plan.md ──► [pvt-execute]
+     HITL                              HITL                            HITL
+```
+
+<Steps>
+  <Step title="pvt-discuss">
+    The **pvt-analyst** specialist receives your requirements and a case list — either a CSV, a Markdown table, or a named Jira story — and grounds everything against the live schema.
+
+    It produces `docs/sa/pvt-discuss.md` containing:
+    - A case inventory (every case numbered and named)
+    - The tables each case touches
+    - Cases that cannot be run in production (marked unrunnable with reasons)
+    - Open questions for you to answer before planning
+
+    **Your action:** review the inventory and answer any questions, then approve.
+  </Step>
+  <Step title="pvt-plan">
+    The **pvt-planner** specialist reads your approved `pvt-discuss.md` and organises cases into the fewest shared data setups — because every separate setup is another SRE round trip.
+
+    It produces `docs/sa/pvt-plan.md` containing:
+    - Scenario groups, where each group shares one data setup
+    - The full numbered script set in run order
+    - A pre-window / in-window split: data that can be staged before the window must not be created inside it
+    - Impact notes from the system model
+
+    **Your action:** review the groupings and the pre/in-window split, then approve.
+  </Step>
+  <Step title="pvt-execute">
+    The **pvt-scripter** specialist reads your approved `pvt-plan.md` and writes the actual SQL scripts.
+
+    It produces `docs/sa/pvt-execute.md` containing the full numbered script set, the run order, and the owner for each script.
+
+    **Your action:** review the scripts, then approve. A human runs them — the agent does not.
+  </Step>
+</Steps>
+
+## The window constraint
+
+Two rules shape every PVT plan:
+
+1. **Nothing gets created inside the maintenance window that could have been staged before it.** The pvt-plan's pre-window / in-window split exists for exactly this purpose. Data setup, seeding, and schema prep belong before the window; verification queries and outcome checks happen inside it.
+
+2. **Every SRE round trip costs window time.** Cases that can share a data setup must share one. A plan that creates a separate setup per case is always wrong — it forces the SRE to run more scripts, burns more window time, and increases the chance of an error or a timeout.
+
+## Script naming convention
+
+Scripts follow a strict naming pattern so run order is unambiguous and ownership is clear at a glance:
+
+```
+NN-<action>[-pvt-NN]_<owner>.sql
+```
+
+- `NN` — two-digit run order number, unique and ascending
+- `<action>` — what the script does (`setup-db`, `seed-db`, `patch-data`, `clear-data`, `rollback`)
+- `-pvt-NN` — optional, appended when a script corresponds to a specific test case
+- `<owner>` — `devops` or `sre`
+- `_(optional)` — suffix for rollback scripts
+
+A complete script set looks like this:
+
+```
+01-setup-db_devops.sql
+02-seed-db_sre.sql
+03-patch-data_sre.sql
+04-patch-data-pvt-01_sre.sql
+05-patch-data-pvt-02_sre.sql
+06-clear-data-pvt_sre.sql
+08-rollback_devops_(optional).sql
+09-rollback_sre_(optional).sql
+```
+
+<Note>
+  Every rollback script is written in the same pass as the script it undoes.
+  A rollback added after the fact is not a rollback — it is a guess. If the
+  pvt-execute phase does not produce a rollback for a destructive script, treat
+  that as a gap.
+</Note>
+
+## Phase artifacts
+
+| Phase | Artifact path |
+|---|---|
+| pvt-discuss | `docs/sa/pvt-discuss.md` |
+| pvt-plan | `docs/sa/pvt-plan.md` |
+| pvt-execute | `docs/sa/pvt-execute.md` |
+
+These artifacts follow the same human-gate discipline as the main harness: the next specialist reads the approved file, not the conversation. In the Chat GUI, the artifacts are also stored in Supabase and accessible as `@Artifacts/pvt-discuss.md`, `@Artifacts/pvt-plan.md`, and `@Artifacts/pvt-execute.md`.
+
+## run_sql stays read-only
+
+Throughout the entire PVT track, `run_sql` remains read-only. The agent uses it to verify that a query returns what it claims — never to seed, patch, or modify data. The SQL scripts in `pvt-execute.md` are artifacts for humans to run; the agent produces them, it does not execute them.
+
+## How to invoke the PVT track
+
+<Tabs>
+  <Tab title="Claude Code">
+    Load the `$pvt-prep` skill to enter the PVT track:
+
+    ```
+    $pvt-prep
+    ```
+
+    Then use `/agents` to select the phase:
+
+    ```
+    /agents pvt-discuss
+    /agents pvt-plan
+    /agents pvt-execute
+    ```
+  </Tab>
+  <Tab title="Codex">
+    Invoke the `$pvt-prep` skill directly:
+
+    ```
+    $pvt-prep
+    ```
+
+    Drive each phase yourself using the skill and approving the artifact between phases.
+  </Tab>
+  <Tab title="Chat API">
+    Pass the PVT phase in the `phase` parameter of `POST /chat`:
+
+    ```json title="POST /chat — start pvt-discuss"
+    {
+      "message": "Prepare PVT for the user migration — case list in @requirements/pvt-cases.csv",
+      "phase": "pvt-discuss"
+    }
+    ```
+
+    Continue with the same `threadId` for subsequent phases:
+
+    ```json title="POST /chat — advance to pvt-plan"
+    {
+      "message": "Cases approved. Proceed to planning.",
+      "threadId": "thread_abc123",
+      "phase": "pvt-plan"
+    }
+    ```
+
+    Valid PVT phase values: `pvt-discuss`, `pvt-plan`, `pvt-execute`.
+  </Tab>
+</Tabs>
+
+<Tip>
+  You can override the model for each PVT phase independently using
+  `AGENT_PVT_DISCUSS_MODEL`, `AGENT_PVT_PLAN_MODEL`, and
+  `AGENT_PVT_EXECUTE_MODEL`. The same `provider:model` and `provider/model`
+  formats apply as with the main harness phases.
+</Tip>

@@ -1,0 +1,90 @@
+---
+title: "Gateway API: Available Models and Quota"
+sidebarTitle: "Gateway"
+description: "Discover which chat models your Bifrost virtual key can reach and monitor budget consumption using the GET /v1/gateway/models and GET /v1/gateway/quota endpoints."
+---
+
+The Gateway API exposes two read-only endpoints that proxy the Bifrost governance surface. Use them to populate a model picker in the Chat GUI and to check remaining budget after each turn. Both endpoints are cached in memory so the GUI can call them freely without hammering the upstream gateway.
+
+Both endpoints are `optionalAuth` by default — the same policy as `/chat`. If you expose the backend outside localhost, add `requireAuth` to `/quota` before doing so.
+
+---
+
+## GET /v1/gateway/models
+
+Returns the chat models that your Bifrost virtual key is authorised to use, together with each model's context length and per-token pricing. Embedding models are filtered out — passing one to `POST /chat` as a `model` override would cause a gateway `404` several supersteps into a run you have already paid for.
+
+Results are cached in memory for the duration configured by `BIFROST_MODELS_CACHE_MS`. The Chat GUI uses this list to build the model picker and validate the `model` field before sending a request.
+
+### Response
+
+```json title="Example response"
+{
+  "ok": true,
+  "models": [
+    {
+      "id": "dashscope/qwen3.8-max",
+      "name": "Qwen3 8B Max",
+      "contextLength": 32768,
+      "inputCostPer1kTokens": 0.0004,
+      "outputCostPer1kTokens": 0.0012
+    },
+    {
+      "id": "huawei/glm-5.2",
+      "name": "GLM 5.2",
+      "contextLength": 8192,
+      "inputCostPer1kTokens": null,
+      "outputCostPer1kTokens": null
+    }
+  ]
+}
+```
+
+<Note>
+Per-token pricing is `null` for models the gateway does not publish a price list for. In that case, cost estimates in the `usage` object are blended figures derived from prior billing data, and `costEstimated` will be `true` in those responses.
+</Note>
+
+### Example
+
+```bash title="List available models"
+curl -s http://localhost:3000/v1/gateway/models | jq '.models[].id'
+```
+
+---
+
+## GET /v1/gateway/quota
+
+Returns the budget and spend data for your virtual key's current billing period: the overall budget, per-model usage, and per-provider sub-budgets. The data is flattened from Bifrost's `GET /api/governance/virtual-keys/quota` endpoint.
+
+Results are cached in memory for `BIFROST_QUOTA_CACHE_MS` (default **30 seconds**). The Chat GUI reads this endpoint after every turn to refresh the budget display without adding latency to the turn itself.
+
+### Response
+
+```json title="Example response"
+{
+  "ok": true,
+  "quota": {
+    "budgetUsd": 50.00,
+    "spendUsd": 12.43,
+    "remainingUsd": 37.57,
+    "periodStart": "2025-06-01T00:00:00Z",
+    "periodEnd": "2025-06-30T23:59:59Z",
+    "perModel": {
+      "dashscope/qwen3.8-max": { "inputTokens": 1240000, "outputTokens": 380000, "costUsd": 8.21 }
+    },
+    "perProvider": {
+      "dashscope": { "budgetUsd": 30.00, "spendUsd": 8.21 }
+    }
+  }
+}
+```
+
+<Warning>
+The quota response reveals your virtual key's total budget and spend. Before exposing the SA Agent backend on any interface other than localhost, change the `/v1/gateway/quota` route policy from `optionalAuth` to `requireAuth`.
+</Warning>
+
+### Example
+
+```bash title="Check remaining budget"
+curl -s http://localhost:3000/v1/gateway/quota | jq '.quota.remainingUsd'
+```

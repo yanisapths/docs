@@ -1,0 +1,74 @@
+---
+title: "SA Agent Knowledge Tools: Docs and Schema Search"
+sidebarTitle: "Knowledge Tools"
+description: "Three tools for searching indexed Mintlify documentation and DDL narrative so SA Agent grounds answers in API contracts, conventions, and schema background."
+---
+
+SA Agent answers questions about your API contracts, authentication patterns, and table-level background through three knowledge tools backed by indexed Mintlify documentation and a DDL narrative store. These tools are available on both the `langchain` (Chat GUI) and `mcp-knowledge` (Claude Code / Codex plugin) surfaces. Use `search_docs` to locate relevant pages, `get_doc_page` to read them in full, and `search_schema_docs` for background context on tables and columns.
+
+## search\_docs
+
+`search_docs` scans the indexed Mintlify documentation for API contracts, endpoint definitions, authentication schemes, and project conventions. It returns a list of matching page titles, path slugs, and short content snippets. Snippets are summaries only — never treat them as a complete answer. Always follow up with `get_doc_page` on the best matching paths.
+
+<ParamField body="query" type="string" required>
+  The topic or question to search for, e.g. `"voting endpoint authentication"` or `"pagination conventions"`.
+</ParamField>
+
+<ParamField body="limit" type="integer">
+  Maximum number of results to return. Must be between 1 and 10. Defaults to **5**.
+</ParamField>
+
+<Tip>
+  If the first search returns ambiguous results, run it again with a narrower term. Budget 4–6 docs calls per phase, and always follow `search_docs` with `get_doc_page` on 1–3 of the best-matching paths. Never answer from snippets alone.
+</Tip>
+
+---
+
+## get\_doc\_page
+
+`get_doc_page` reads one or more full Mintlify documentation pages by their path slugs. Pass the exact `path` field returned by `search_docs` — no leading slash, no domain. SA Agent reads the complete page content so it can ground its answer in the full specification rather than a snippet.
+
+<ParamField body="paths" type="string[]" required>
+  An array of 1–8 exact path slugs from `search_docs`, e.g. `["aster-admin/orch-admin-service/voting/overview"]`. Do not add a leading slash and do not pass full URLs.
+</ParamField>
+
+<Note>
+  Pass the slug exactly as it appears in `search_docs` output. SA Agent accepts up to 8 paths per call — prefer the 1–3 best hits to stay within your phase docs budget.
+</Note>
+
+---
+
+## search\_schema\_docs
+
+`search_schema_docs` searches an indexed snapshot of DDL documentation for background on tables and columns — historical context, business intent, and the human-readable explanations that were written alongside the schema. This is a **documentation snapshot**, not the live schema. For authoritative, current column definitions and foreign-key relationships, use `describe_tables` and `inspect_relationships` instead.
+
+<ParamField body="query" type="string" required>
+  The table name, column name, or business concept to look up, e.g. `"trait_user_result scoring"`.
+</ParamField>
+
+<ParamField body="limit" type="integer">
+  Maximum number of results to return. Must be between 1 and 10. Defaults to **5**.
+</ParamField>
+
+<Warning>
+  `search_schema_docs` returns indexed documentation that may lag behind the live database. Use it for background and intent, then confirm the actual structure with `describe_tables` and `inspect_relationships`.
+</Warning>
+
+---
+
+## Recommended workflow
+
+<Steps>
+  <Step title="Search for relevant pages">
+    Call `search_docs` with a focused query. Review the titles and snippets to identify the 1–3 best matches.
+  </Step>
+  <Step title="Read the full pages">
+    Call `get_doc_page` on the matching slugs. Read the complete page content before forming an answer or writing a spec.
+  </Step>
+  <Step title="Add schema background">
+    Call `search_schema_docs` when you need business context or intent behind a table or column. Then confirm live structure with `describe_tables`.
+  </Step>
+  <Step title="Refine if needed">
+    If results are ambiguous after the first search, run `search_docs` again with a narrower term. Stay within 4–6 docs calls per phase.
+  </Step>
+</Steps>

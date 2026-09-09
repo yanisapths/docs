@@ -1,0 +1,125 @@
+---
+title: "Connect SA Agent to Jira for Ticket Context"
+sidebarTitle: "Jira Integration"
+description: "Configure SA Agent's Jira MCP so analysts can pull ticket and user-story context on demand, without the agent calling Jira automatically on every turn."
+---
+
+SA Agent can pull Jira ticket and user-story context when you explicitly ask for it. The integration is intentionally opt-in: the agent **never** calls Jira automatically. It reads a ticket only when you say something like "Get ticket PROJ-123" or "Read user story PROJ-456", which keeps token spend predictable and avoids accidentally leaking ticket data into unrelated analysis turns.
+
+## The two Jira tools
+
+| Tool | What it does |
+|---|---|
+| `get_jira_ticket` | Fetches a Jira issue by ticket ID and returns its summary, description, type, status, and linked issues |
+| `read_jira_user_story` | Fetches a user story by ID and returns its acceptance criteria and story points alongside the full description |
+
+Both tools are exposed through the `$jira` skill in Claude Code and Codex, and they are available as MCP tools in the sa-knowledge server when Jira is configured.
+
+## Configuration options
+
+Choose the option that matches your Jira deployment:
+
+<Tabs>
+  <Tab title="Local stdio server (this repo)">
+    The built-in Jira MCP server in this repo handles both Jira Server/Data Center and Jira Cloud. Set the variables that apply to your deployment in `backend/.env`.
+
+    **Jira Server or Data Center:**
+
+    ```bash title="backend/.env — Server / Data Center"
+    JIRA_URL=https://jira.yourcompany.com
+    JIRA_PERSONAL_TOKEN=<your-personal-access-token>
+    ```
+
+    **Jira Cloud:**
+
+    ```bash title="backend/.env — Jira Cloud"
+    JIRA_URL=https://yourorg.atlassian.net
+    JIRA_USERNAME=you@yourcompany.com
+    JIRA_API_TOKEN=<your-api-token>
+    ```
+
+    If `JIRA_USERNAME` and `JIRA_API_TOKEN` are not set, Cloud Jira automatically falls back to `CONFLUENCE_BASE_URL`, `CONFLUENCE_USERNAME`, and `CONFLUENCE_ACCESS_TOKEN` — useful if you have already configured Confluence and both services share the same Atlassian account.
+
+    **Self-signed certificates:**
+
+    ```bash title="backend/.env — SSL"
+    JIRA_SSL_VERIFY=false
+    ```
+
+    Start the Jira MCP server to verify your credentials before opening a full agent session:
+
+    ```bash title="Test the Jira MCP server"
+    cd "$SA_AGENT_HOME/backend"
+    bun run mcp:jira
+    ```
+  </Tab>
+  <Tab title="External stdio server">
+    Point SA Agent at a separately managed Jira MCP process — for example, a company-shared `@atlassian/jira-mcp` server.
+
+    ```bash title="backend/.env — External stdio"
+    JIRA_MCP_COMMAND=npx
+    JIRA_MCP_ARGS=@atlassian/jira-mcp
+    ```
+
+    `JIRA_MCP_ARGS` is optional. Omit it if the command takes no arguments. The process is spawned by the MCP client and inherits the environment from `backend/.env`.
+  </Tab>
+  <Tab title="Remote MCP">
+    Connect to a remote MCP endpoint over HTTP — for example, your own hosted MCP proxy.
+
+    ```bash title="backend/.env — Remote MCP"
+    JIRA_MCP_URL=https://your-mcp-proxy.internal/jira
+    JIRA_MCP_TOKEN=<your-token>
+    ```
+
+    <Warning>
+      Do **not** set `JIRA_MCP_URL` to `https://mcp.atlassian.com/...` without completing OAuth. That URL looks configured and the agent loads without error, but the tools silently fail to authenticate when called. Always test with `bun run mcp:jira` before relying on remote MCP in a session.
+    </Warning>
+  </Tab>
+</Tabs>
+
+## How to trigger Jira in a conversation
+
+The agent calls Jira **only** when you explicitly ask for a ticket or story. Use the `$jira` skill in Claude Code or Codex, or phrase your message so the intent is clear in the Chat GUI.
+
+<Tabs>
+  <Tab title="Claude Code / Codex">
+    ```
+    $jira
+
+    Get ticket PROJ-123 and use it as the requirements basis for the discuss phase.
+    ```
+
+    ```
+    $jira
+
+    Read user story PROJ-456. What acceptance criteria are relevant to the orders table?
+    ```
+  </Tab>
+  <Tab title="Chat API">
+    ```bash title="Pull a ticket via the Chat API"
+    curl -s -X POST http://localhost:5001/chat \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "message": "Get ticket PROJ-123 and summarize the requirements.",
+        "threadId": "<your-threadId>"
+      }'
+    ```
+
+    You do not need to specify a phase — the router picks `discuss` automatically when ticket context is pulled at the start of a feature.
+  </Tab>
+</Tabs>
+
+<Tip>
+  For PVT prep, combine `$jira` and `$pvt-prep` in the same turn: ask the agent to read a user story and immediately generate the PVT script set from it. The PVT Prep skill knows how to map acceptance criteria to numbered SQL scripts.
+</Tip>
+
+## Verifying the connection
+
+Run the Jira MCP server interactively to confirm your credentials and that the tools load:
+
+```bash title="Start the Jira MCP server"
+cd "$SA_AGENT_HOME/backend"
+bun run mcp:jira
+```
+
+Then in a Claude Code session, open `/mcp` and confirm **jira** appears in the list alongside **sa-knowledge**. If the server is missing, check that `SA_AGENT_HOME` is set in the shell that launched Claude, and that at least one of the configuration options above is populated in `backend/.env`.

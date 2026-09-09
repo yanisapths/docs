@@ -1,0 +1,313 @@
+---
+title: "Configure SA Agent: Database, Models, and Integrations"
+sidebarTitle: "Configuration"
+description: "Reference for every environment variable in SA Agent: database connection, LLM model routing, and optional integrations like Jira, LangSmith, and Supabase vault."
+---
+
+SA Agent reads its configuration from `backend/.env`. The file is never committed — copy `backend/.env.example` and fill in the values relevant to your setup. This page covers every variable grouped by concern.
+
+<Note>
+  Use a **read-only PostgreSQL role** for `DATABASE_URL`. SA Agent only needs `SELECT` access to your application database. All `run_sql` calls are wrapped in a read-only transaction, but a read-only role adds a second layer of protection.
+</Note>
+
+## Required: database and model
+
+These variables must be set for the agent to answer questions about your schema.
+
+### Database
+
+<ParamField body="DATABASE_URL" type="string" required>
+  Full PostgreSQL URI: `postgresql://user:password@host:5432/database`. Must be a URI — a bare hostname is rejected at first query rather than failing silently as a DNS error.
+</ParamField>
+
+<ParamField body="DATABASE_SCHEMA" type="string" default="public">
+  The schema to introspect. Set this if your tables live in a schema other than `public`.
+</ParamField>
+
+### Model provider
+
+You need at least one of the following. Bifrost is recommended — it routes every phase through your company's LLM gateway and supports per-phase model overrides.
+
+<Tabs>
+  <Tab title="Bifrost (recommended)">
+    <ParamField body="BIFROST_BASE_URL" type="string" required>
+      Gateway origin. The agent POSTs to `$BIFROST_BASE_URL/v1/chat/completions`.
+    </ParamField>
+
+    <ParamField body="BIFROST_API_KEY" type="string" required>
+      Your virtual key. Sent on the `x-bf-vk` header by default.
+    </ParamField>
+
+    <ParamField body="BIFROST_AUTH_HEADER" type="string" default="x-bf-vk">
+      Header name for the virtual key.
+    </ParamField>
+
+    <ParamField body="BIFROST_MODEL" type="string" default="dashscope/qwen3.7-flash">
+      Default `provider/model` for every phase that has no explicit override. Format is `provider/model` — a slash routes through the gateway.
+    </ParamField>
+
+    <ParamField body="BIFROST_MAX_TOKENS" type="number" default="50000">
+      Token budget per completion. Reasoning models consume tokens for thinking as well as output — a low limit can exhaust the budget on thinking and return empty content silently.
+    </ParamField>
+
+    <ParamField body="BIFROST_USER_AGENT" type="string" default="sa-agent/0.1">
+      User-Agent sent on every request. The gateway is fronted by Cloudflare, which blocks stock SDK agents — this must be set on the outgoing request.
+    </ParamField>
+  </Tab>
+  <Tab title="Anthropic direct">
+    <ParamField body="ANTHROPIC_API_KEY" type="string">
+      Required only when a model id uses the `anthropic:` prefix (e.g. `anthropic:claude-haiku-4-5`). If `BIFROST_BASE_URL` is set, Claude Code routes through Bifrost and ignores this key for the LangChain agent — but the CLI needs it separately via `ANTHROPIC_CUSTOM_HEADERS`.
+    </ParamField>
+  </Tab>
+</Tabs>
+
+## Model overrides per phase
+
+By default every phase uses `BIFROST_MODEL`. You can route individual phases to different models — for example, keeping the execute phase on a local coder while the rest go through Bifrost.
+
+**Model id format determines routing:**
+- A **slash** (`provider/model`) routes through Bifrost. Example: `dashscope/qwen3.7-max`
+- A **colon** (`provider:model`) goes directly to that provider. Example: `ollama:qwen2.5-coder`
+
+<ParamField body="AGENT_CHAT_MODEL" type="string">
+  Model for the chat/discuss phase. Defaults to `BIFROST_MODEL` when the gateway is configured, else `anthropic:claude-haiku-4-5`.
+</ParamField>
+
+<ParamField body="AGENT_EXECUTE_MODEL" type="string">
+  Model for the execute phase. Use a strong coder here — e.g. `ollama:qwen2.5-coder` for local execution.
+</ParamField>
+
+<ParamField body="AGENT_PVT_DISCUSS_MODEL" type="string">
+  Model for the `pvt-discuss` phase of the PVT prep track.
+</ParamField>
+
+<ParamField body="AGENT_PVT_PLAN_MODEL" type="string">
+  Model for the `pvt-plan` phase.
+</ParamField>
+
+<ParamField body="AGENT_PVT_EXECUTE_MODEL" type="string">
+  Model for the `pvt-execute` phase. This is the phase that writes production SQL scripts someone else runs — it is usually worth a stronger model than the rest.
+</ParamField>
+
+```bash title="Example: mixed routing"
+# Local coder for execute; gateway for everything else
+AGENT_EXECUTE_MODEL=ollama:qwen2.5-coder
+AGENT_PVT_EXECUTE_MODEL=dashscope/qwen3.7-max
+
+# These phases fall back to BIFROST_MODEL
+# AGENT_CHAT_MODEL=
+# AGENT_PVT_DISCUSS_MODEL=
+# AGENT_PVT_PLAN_MODEL=
+```
+
+### Claude Code via Bifrost
+
+When you use the `./scripts/claude` launcher, the CLI speaks the Anthropic Messages API against `$BIFROST_BASE_URL/anthropic`. Set `CLAUDE_BIFROST_MODEL` and `CLAUDE_BIFROST_SMALL_MODEL` independently from the LangChain models — do not set `ANTHROPIC_AUTH_TOKEN`.
+
+<ParamField body="CLAUDE_BIFROST_MODEL" type="string" default="dashscope/qwen3.8-max">
+  Gateway model id for the main Claude Code session.
+</ParamField>
+
+<ParamField body="CLAUDE_BIFROST_SMALL_MODEL" type="string" default="huawei/glm-5.2">
+  Gateway model id for plugin subagents that declare `model: haiku`.
+</ParamField>
+
+<Warning>
+  MCP processes spawned by Claude Code always load `backend/.env` by its absolute path, even when the current working directory is a product repo. Keep all your credentials in that single file.
+</Warning>
+
+## Server settings
+
+<ParamField body="PORT" type="number" default="3000">
+  Port the Express backend listens on. If you run the Next.js frontend on the same machine, change one of them to avoid a collision. See the Chat GUI setup in the quickstart for an example.
+</ParamField>
+
+<ParamField body="CORS_ORIGIN" type="string" default="http://localhost:3000">
+  Comma-separated list of allowed frontend origins. Set to the Next.js dev URL when running both locally.
+</ParamField>
+
+## Optional integrations
+
+<Accordion title="Mintlify live docs">
+  SA Agent calls `search_docs` and `get_doc_page` against a live Mintlify site to read your API contracts and product documentation.
+
+  <ParamField body="MINTLIFY_AUTH" type="string">
+    Assistant API key — the `mint_dsc_…` key, not the site access code.
+  </ParamField>
+
+  <ParamField body="MINTLIFY_DOMAIN" type="string" default="aster-internal">
+    Your Mintlify deployment slug.
+  </ParamField>
+
+  <ParamField body="MINTLIFY_GROUPS" type="string">
+    Comma-separated groups for password-gated or `userAuth` sites. Omit for public pages only.
+  </ParamField>
+</Accordion>
+
+<Accordion title="Chroma vector store (DDL narrative)">
+  Chroma backs `search_schema_docs` — semantic search over your DDL narrative. Populate it by running `bun run ingest:ddl path/to/schema.sql`.
+
+  <ParamField body="CHROMA_HOST" type="string" default="api.trychroma.com">
+    Chroma Cloud host.
+  </ParamField>
+
+  <ParamField body="CHROMA_API_KEY" type="string">
+    Chroma Cloud API key.
+  </ParamField>
+
+  <ParamField body="CHROMA_TENANT" type="string">
+    Your Chroma tenant name.
+  </ParamField>
+
+  <ParamField body="CHROMA_DATABASE" type="string">
+    Your Chroma database name.
+  </ParamField>
+
+  <ParamField body="CHROMA_DDL_COLLECTION" type="string" default="aster-database_ddl">
+    Name of the Chroma collection holding indexed DDL narrative.
+  </ParamField>
+
+  Embeddings are generated locally by Ollama and must match the collection's vector width:
+
+  <ParamField body="OLLAMA_URL" type="string" default="http://localhost:11434">
+    Local Ollama base URL.
+  </ParamField>
+
+  <ParamField body="OLLAMA_EMBED_MODEL" type="string" default="mxbai-embed-large">
+    Embedding model. Width must match the Chroma collection: `nomic-embed-text` = 768 dimensions, `mxbai-embed-large` = 1024 dimensions.
+  </ParamField>
+</Accordion>
+
+<Accordion title="Jira">
+  SA Agent fetches Jira tickets and user stories only when you explicitly ask — e.g. "get ticket PROJ-123". Configure one of the three modes below.
+
+  **Local stdio (this repo):**
+
+  <ParamField body="JIRA_URL" type="string">
+    Your Jira instance URL, e.g. `https://yourorg.atlassian.net`.
+  </ParamField>
+
+  <ParamField body="JIRA_USERNAME" type="string">
+    Jira Cloud username (email). Used with `JIRA_API_TOKEN`.
+  </ParamField>
+
+  <ParamField body="JIRA_API_TOKEN" type="string">
+    Jira Cloud API token. Pair with `JIRA_USERNAME`.
+  </ParamField>
+
+  <ParamField body="JIRA_PERSONAL_TOKEN" type="string">
+    Personal access token for Jira Server / Data Center. Replaces the username + API token pair.
+  </ParamField>
+
+  <ParamField body="JIRA_SSL_VERIFY" type="boolean" default="true">
+    Set to `false` for self-signed certificates on an on-premises Jira instance.
+  </ParamField>
+
+  **External stdio server:**
+
+  <ParamField body="JIRA_MCP_COMMAND" type="string">
+    Command to launch an external Jira stdio MCP server.
+  </ParamField>
+
+  **Remote MCP:**
+
+  <ParamField body="JIRA_MCP_URL" type="string">
+    Remote MCP endpoint. Only set this when you have a working `JIRA_MCP_TOKEN` — do not point it at the hosted Atlassian MCP without OAuth.
+  </ParamField>
+
+  <ParamField body="JIRA_MCP_TOKEN" type="string">
+    Bearer token for the remote MCP endpoint.
+  </ParamField>
+
+  If none of the `JIRA_*` values are set, Cloud Jira falls back to `CONFLUENCE_BASE_URL` + `CONFLUENCE_USERNAME` / `CONFLUENCE_ACCESS_TOKEN`.
+</Accordion>
+
+<Accordion title="LangSmith tracing">
+  Enable LangSmith to trace every agent run, including MCP tool calls from Claude Code and Codex sessions.
+
+  <ParamField body="LANGSMITH_TRACING" type="boolean" default="true">
+    Set to `true` to enable tracing. MCP tool calls are tagged `mcp` plus `claude-code` or `codex`.
+  </ParamField>
+
+  <ParamField body="LANGSMITH_API_KEY" type="string">
+    Your LangSmith API key.
+  </ParamField>
+
+  <ParamField body="LANGSMITH_PROJECT" type="string" default="sa-agent">
+    LangSmith project name. All runs for this deployment appear under this project.
+  </ParamField>
+
+  <ParamField body="LANGSMITH_ENDPOINT" type="string" default="https://api.smith.langchain.com">
+    LangSmith ingest endpoint. Change this only for self-hosted deployments.
+  </ParamField>
+</Accordion>
+
+<Accordion title="Supabase vault and artifacts">
+  The Chat GUI uses Supabase to store uploaded files (vault) and phase outputs (artifacts). Both features require Supabase Storage buckets and the matching SQL schemas.
+
+  Run these in the Supabase SQL editor before using the features:
+  - `sql/vault.sql` — vault bucket schema
+  - `sql/artifacts.sql` — artifacts bucket schema
+  - `sql/workspaces.sql` — local project folder registry
+
+  <ParamField body="SUPABASE_URL" type="string">
+    Your Supabase project URL, e.g. `https://abc123.supabase.co`.
+  </ParamField>
+
+  <ParamField body="SUPABASE_SERVICE_ROLE_KEY" type="string">
+    Supabase service role key. Used for server-side storage operations.
+  </ParamField>
+
+  <ParamField body="VAULT_DEV_TOKEN" type="string">
+    Development auth token for the vault and artifacts APIs. In production, the endpoints accept a Supabase access token as `Authorization: Bearer <token>`.
+  </ParamField>
+
+  <ParamField body="SUPABASE_VAULT_BUCKET" type="string" default="vault">
+    Supabase Storage bucket name for vault files.
+  </ParamField>
+
+  <ParamField body="SUPABASE_ARTIFACTS_BUCKET" type="string" default="artifacts">
+    Supabase Storage bucket name for phase artifacts.
+  </ParamField>
+
+  Mention vault files in a message as `@folder/file.sql`. The agent mounts text files on its virtual filesystem at `/vault/folder/file` so it can read and edit them. Mention artifacts as `@Artifacts/{filename}`.
+
+  <Tip>
+    The vault and artifacts APIs require `Authorization: Bearer <token>` on every request. The Chat GUI handles this automatically. For direct API calls, send the same token you set in `VAULT_DEV_TOKEN`.
+  </Tip>
+</Accordion>
+
+<Accordion title="Local project folders (Chat GUI)">
+  Register local directories so the agent can read and write files in them from the Chat GUI. The backend must run on the same machine as the folders.
+
+  <ParamField body="WORKSPACE_ALLOWED_ROOTS" type="string">
+    Comma-separated absolute path prefixes the agent is allowed to access. Omit to allow any non-system directory. Example: `/Users/you/src,/Users/you/work`.
+  </ParamField>
+
+  Register a folder via `POST /v1/workspaces` or the sidebar **Work in a folder** button. Mention files as `@Projects/name/src/foo.ts`. The execute phase can write inside the registered root; it does not commit or open a pull request.
+
+  Run `sql/workspaces.sql` in Supabase before registering folders.
+</Accordion>
+
+## Verifying your configuration
+
+After filling in `.env`, verify the full path from env through headers to the model:
+
+```bash title="Check Bifrost end-to-end"
+cd "$SA_AGENT_HOME/backend"
+
+# Verify env, then make a real chat call and a real tool call
+bun run check:bifrost
+
+# List model ids this virtual key can actually reach
+bun run check:bifrost -- --models
+
+# Verify the Anthropic Messages path Claude Code uses
+bun run check:bifrost -- --claude
+```
+
+If `check:bifrost` passes, start the backend:
+
+```bash title="Start the backend"
+bun run dev
+```

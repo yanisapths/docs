@@ -1,0 +1,211 @@
+---
+title: "Workspaces API: Local Project Folder Management"
+sidebarTitle: "Workspaces"
+description: "Register local project folders as Workspaces so the SA Agent's workspace tools can read, search, and write files in your codebase during a chat turn."
+---
+
+Workspaces are registered absolute paths on the machine running the SA Agent backend. Once a workspace is registered and its ID is passed in a `POST /chat` request, the agent's workspace tools — `workspace_ls`, `workspace_read`, `workspace_grep`, and `workspace_write` — see that folder as the root of the filesystem (`/`). This lets the agent read existing code, grep for patterns, and write new files or edits directly into your project during the execute and review phases.
+
+All Workspaces endpoints require `Authorization: Bearer <token>`.
+
+<Warning>
+The Chat GUI and the SA Agent backend must share a disk. Registering a path that exists on a different machine will cause all workspace tool calls to fail silently.
+</Warning>
+
+<Note>
+**Setup:** run `sql/workspaces.sql` in the Supabase SQL editor before using the Workspaces API.
+</Note>
+
+---
+
+## How workspaces are used in chat
+
+Pass the `workspaceId` field to `POST /chat` to attach a workspace to a turn:
+
+```bash title="Chat with a workspace attached"
+curl -s -X POST http://localhost:3000/chat \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <token>' \
+  -d '{
+    "message": "Find all usages of the orders table and suggest an index.",
+    "workspaceId": "ws_abc123",
+    "phase": "discuss"
+  }'
+```
+
+During the turn, workspace tools map `ws_abc123`'s registered path to `/`. Phase artifacts (the Markdown outputs from each phase) are written to `/artifacts/*.md` inside the workspace.
+
+---
+
+## Mention format
+
+Reference specific workspace files in a chat message using mention tokens:
+
+```
+@Projects/admin-service
+@Projects/admin-service/src/routes/orders.ts
+```
+
+The first form attaches the workspace root; the second form references a single file. Use the `GET /v1/workspaces/mentions` autocomplete endpoint to discover available tokens.
+
+---
+
+## Endpoints
+
+### GET /v1/workspaces
+
+List all registered workspaces.
+
+```bash title="List workspaces"
+curl -s http://localhost:3000/v1/workspaces \
+  -H 'Authorization: Bearer <token>'
+```
+
+**Example response**
+
+```json
+{
+  "ok": true,
+  "workspaces": [
+    {
+      "id": "ws_abc123",
+      "name": "admin-service",
+      "path": "/Users/you/src/admin-service",
+      "createdAt": "2025-06-01T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+### POST /v1/workspaces/pick
+
+Opens the macOS Finder folder selection panel and returns the path the user picks. Useful in the Chat GUI to let users attach a project without typing a path manually. Returns `{ "path": null }` if the panel is cancelled.
+
+<Note>
+This endpoint only works when the backend process has access to a macOS GUI session (i.e. you are running the backend locally, not in a headless container or remote server).
+</Note>
+
+```bash title="Open folder picker"
+curl -s -X POST http://localhost:3000/v1/workspaces/pick \
+  -H 'Authorization: Bearer <token>'
+```
+
+**Example responses**
+
+```json title="Folder selected"
+{ "path": "/Users/you/src/admin-service" }
+```
+
+```json title="Picker cancelled"
+{ "path": null }
+```
+
+---
+
+### POST /v1/workspaces
+
+Register a workspace by providing its name and absolute path.
+
+**Request body**
+
+<ParamField body="name" type="string" required>
+  Display name for the workspace. Used in `@Projects/{name}` mention tokens.
+</ParamField>
+
+<ParamField body="path" type="string" required>
+  Absolute path to the project folder on the machine running the backend. Must match an allowed prefix if `WORKSPACE_ALLOWED_ROOTS` is configured.
+</ParamField>
+
+```bash title="Register a workspace"
+curl -s -X POST http://localhost:3000/v1/workspaces \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "admin-service",
+    "path": "/Users/you/src/admin-service"
+  }'
+```
+
+**Optional restriction:** set the `WORKSPACE_ALLOWED_ROOTS` environment variable to a comma-separated list of path prefixes. Any `POST /v1/workspaces` request whose `path` does not start with one of those prefixes will be rejected.
+
+```bash title=".env"
+WORKSPACE_ALLOWED_ROOTS=/Users/you/src,/home/ci/projects
+```
+
+---
+
+### DELETE /v1/workspaces/:workspaceId
+
+Unregister a workspace. This does not delete or modify any files on disk.
+
+```bash title="Delete a workspace"
+curl -s -X DELETE http://localhost:3000/v1/workspaces/ws_abc123 \
+  -H 'Authorization: Bearer <token>'
+```
+
+---
+
+### GET /v1/workspaces/mentions
+
+Autocomplete endpoint for the `@Projects/` mention picker in the Chat GUI.
+
+**Query parameters**
+
+<ParamField query="q" type="string">
+  Partial workspace name or file path to match against.
+</ParamField>
+
+<ParamField query="limit" type="integer">
+  Maximum number of results to return. Defaults to `20`.
+</ParamField>
+
+```bash title="Search workspace mentions"
+curl -s 'http://localhost:3000/v1/workspaces/mentions?q=admin&limit=10' \
+  -H 'Authorization: Bearer <token>'
+```
+
+---
+
+## End-to-end example
+
+Register a project folder and attach it to a chat turn in three steps:
+
+<Steps>
+  <Step title="Register the workspace">
+
+```bash title="Register admin-service"
+curl -s -X POST http://localhost:3000/v1/workspaces \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "admin-service", "path": "/Users/you/src/admin-service"}'
+```
+
+Note the `id` field in the response (e.g. `ws_abc123`).
+
+  </Step>
+  <Step title="Start an analysis turn with the workspace attached">
+
+```bash title="Discuss phase with workspace"
+curl -s -X POST http://localhost:3000/chat \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <token>' \
+  -d '{
+    "message": "Identify all tables used by the orders service and map them to the live schema.",
+    "workspaceId": "ws_abc123",
+    "phase": "discuss"
+  }'
+```
+
+  </Step>
+  <Step title="Review the phase artifact written to the workspace">
+
+The agent writes phase artifacts to `/artifacts/*.md` inside the registered folder. After the turn completes, find the discussion output at:
+
+```
+/Users/you/src/admin-service/artifacts/discuss.md
+```
+
+  </Step>
+</Steps>

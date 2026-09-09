@@ -1,0 +1,204 @@
+---
+title: "Chat API: POST /chat and POST /chat/resume"
+sidebarTitle: "Chat"
+description: "Send messages to the SA Agent, stream phase-by-phase reasoning over SSE, and resume human-in-the-loop interrupts using POST /chat and POST /chat/resume."
+---
+
+The Chat API is the primary interface for all agent interactions. Send a message to `POST /chat` and the router picks the right phase specialist, grounds its reasoning in the live PostgreSQL schema and indexed documentation, and returns a structured response. Use `POST /chat/resume` to provide approval decisions when a turn pauses at a human-in-the-loop gate.
+
+---
+
+## POST /chat
+
+Start a new turn or continue an existing session by passing the `threadId` returned by a previous response. The endpoint accepts either a JSON body or a multipart form body (when attaching files).
+
+### Request
+
+<Tabs>
+  <Tab title="JSON body">
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `message` | string | Yes | The user message. Vault `@folder/file.sql` mentions are resolved to file bytes when an `Authorization` header is present. |
+| `threadId` | string | No | Pass the `threadId` from the previous response to continue a session. Omit to start a new thread. |
+| `model` | string | No | A gateway model ID from `GET /v1/gateway/models` (e.g. `dashscope/qwen3.8-max`). Returns `400` if the ID is not recognised. Omit to use the configured phase defaults. |
+| `phase` | string | No | Pin a specialist for this turn. See [Phase parameter](#phase-parameter) below. |
+| `workspaceId` | string | No | ID of a registered workspace. Passes the folder root to workspace tools for this turn. |
+
+  </Tab>
+  <Tab title="Multipart form">
+
+Send a `multipart/form-data` body when attaching files. All fields from the JSON body are also supported as form fields.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `message` | string | Yes | The user message. |
+| `files[]` | file | No | File attachments. Maximum 5 files, 1 MB each, 4 MB total. |
+| `threadId` | string | No | Existing thread to continue. |
+| `model` | string | No | Gateway model ID override. |
+| `phase` | string | No | Phase specialist override. |
+| `workspaceId` | string | No | Registered workspace ID. |
+
+  </Tab>
+</Tabs>
+
+### Phase parameter
+
+<Note>
+The `phase` field accepts: `discuss`, `plan`, `execute`, `test`, `review`, `pvt-discuss`, `pvt-plan`, `pvt-execute`. The `ship` phase is not selectable — a human closes git. Pinning a phase is a directive in the prompt, not a hard constraint: the router almost always honours it, but it is still an LLM deciding.
+</Note>
+
+### Response — JSON (default)
+
+When the `Accept` header is `application/json` (or omitted), the endpoint returns a single JSON object after the full turn completes. Interrupts are auto-approved so non-GUI clients always receive a finished response.
+
+<ResponseField name="ok" type="boolean" required>
+  `true` when the turn completed without a server error.
+</ResponseField>
+
+<ResponseField name="threadId" type="string" required>
+  Pass this value in subsequent requests to continue the session.
+</ResponseField>
+
+<ResponseField name="type" type="string" required>
+  The artifact type the agent produced: `text`, `api_spec`, `sql`, `diagram`, or `code`.
+</ResponseField>
+
+<ResponseField name="data" type="string" required>
+  The serialised artifact payload — a JSON string whose shape matches `type`.
+</ResponseField>
+
+<ResponseField name="artifacts" type="array">
+  List of Artifact file objects written during the turn (phase outputs and `write_files` results).
+</ResponseField>
+
+<ResponseField name="usage" type="object">
+  Token counts and cost for the entire turn. See [Usage object](#usage-object) below.
+</ResponseField>
+
+### Response — SSE stream
+
+Set `Accept: text/event-stream` to receive a stream of Server-Sent Events as the agent reasons. Each event is a JSON object on a `data:` line.
+
+| Event | Description |
+|---|---|
+| `thread` | Emitted first; carries the `threadId` for this session. |
+| `messages` | Intermediate message list (tool calls, tool results). |
+| `step` | A completed superstep with its output. |
+| `interrupt` | Human-in-the-loop gate reached; the turn is pausing for approval. |
+| `values` | Final graph state values after the last step. |
+| `usage` | Token counts and cost for the turn. |
+| `done` | Turn finished. `status` is `complete` or `waiting`. A `waiting` turn must be resumed with `POST /chat/resume`. |
+| `error` | Unrecoverable error; the stream ends. |
+
+<Note>
+Execution timeout does not include time spent waiting for human approval. Vault and workspace mounts for a paused thread are held in memory for 30 minutes.
+</Note>
+
+### Usage object
+
+The `usage` object covers spend across all phase specialists for the turn — not just the router — because specialists are where nearly all of the tokens are consumed.
+
+<ResponseField name="model" type="string">The primary model ID used for the turn.</ResponseField>
+<ResponseField name="phase" type="string">The phase specialist that handled the turn.</ResponseField>
+<ResponseField name="durationMs" type="number">Wall-clock time in milliseconds, including all specialist calls.</ResponseField>
+<ResponseField name="calls" type="number">Number of LLM calls made.</ResponseField>
+<ResponseField name="inputTokens" type="number">Total input tokens across all calls.</ResponseField>
+<ResponseField name="outputTokens" type="number">Total output tokens across all calls.</ResponseField>
+<ResponseField name="reasoningTokens" type="number">Reasoning tokens consumed (reasoning models only).</ResponseField>
+<ResponseField name="cacheReadTokens" type="number">Tokens served from the provider's prompt cache.</ResponseField>
+<ResponseField name="costUsd" type="number">Estimated cost in USD.</ResponseField>
+<ResponseField name="costEstimated" type="boolean">
+  `true` when the figure is a blended rate derived from prior billing data rather than a published per-token price. This is the common case for the default `BIFROST_MODEL`.
+</ResponseField>
+<ResponseField name="models" type="array">Per-model breakdown for turns that called multiple model IDs.</ResponseField>
+
+### Examples
+
+<Tabs>
+  <Tab title="JSON response">
+
+```bash title="Basic chat request"
+curl -s -X POST http://localhost:3000/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "List the tables in the database."}'
+```
+
+  </Tab>
+  <Tab title="SSE stream">
+
+```bash title="Streaming chat with phase pin"
+curl -s -X POST http://localhost:3000/chat \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: text/event-stream' \
+  -d '{"message": "Analyse the orders table.", "phase": "discuss"}'
+```
+
+  </Tab>
+  <Tab title="Continue a thread">
+
+```bash title="Multi-turn session"
+curl -s -X POST http://localhost:3000/chat \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "message": "Now generate a migration plan.",
+    "threadId": "thread_abc123",
+    "phase": "plan"
+  }'
+```
+
+  </Tab>
+  <Tab title="With vault mention">
+
+```bash title="Vault file reference"
+curl -s -X POST http://localhost:3000/chat \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <token>' \
+  -d '{"message": "Review the schema at @requirements/schema.sql and suggest indexes."}'
+```
+
+  </Tab>
+</Tabs>
+
+<Warning>
+Vault `@mentions` require an `Authorization: Bearer <token>` header. Without it, the agent receives the literal `@folder/file.sql` text and a note explaining it could not resolve the reference.
+</Warning>
+
+---
+
+## POST /chat/resume
+
+Resume a thread that paused at a human-in-the-loop gate. Use this endpoint after receiving a `done` SSE event with `status: "waiting"`, or the equivalent signal in a JSON response.
+
+### Request
+
+```json title="Resume request body"
+{
+  "threadId": "thread_abc123",
+  "decisions": [
+    { "approve": "Looks good, proceed to execute." }
+  ]
+}
+```
+
+Each entry in `decisions` must be exactly one of:
+
+| Key | Description |
+|---|---|
+| `approve` | Accept the phase output as-is and continue. Value is an optional comment string. |
+| `edit` | Supply revised content to replace the phase artifact before continuing. |
+| `reject` | Decline and stop the thread. Value is the reason. |
+
+Use the same `Accept` header (`application/json` or `text/event-stream`) as the original `POST /chat` request. The response format is identical to a normal `/chat` response.
+
+### Example
+
+```bash title="Resume a waiting thread"
+curl -s -X POST http://localhost:3000/chat/resume \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <token>' \
+  -d '{
+    "threadId": "thread_abc123",
+    "decisions": [{ "approve": "Approved, continue." }]
+  }'
+```

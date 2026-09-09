@@ -1,0 +1,68 @@
+---
+title: "How SA Agent Grounds Every Answer in Live Data"
+sidebarTitle: "Grounding"
+description: "SA Agent never answers from memory alone. Every claim is traced to a live PostgreSQL schema, a dependency graph, or indexed documentation — never invented."
+---
+
+SA Agent is built around a single constraint: no table, column, or endpoint may be invented. Every claim it makes during discussion, planning, execution, testing, or review is traced to a source you can inspect yourself. When sources disagree, the live database wins.
+
+## The grounding hierarchy
+
+SA Agent pulls from six layers, in priority order. The layer with the freshest, most authoritative data for a given question takes precedence over any layer below it.
+
+| Layer | Tools | Freshness |
+|---|---|---|
+| **Live schema** | `list_tables`, `describe_tables`, `inspect_relationships`, `run_sql` | Real time |
+| **System model** | `query_system_model`, `simulate_impact`, `search_decisions` | Last `build_system_model` |
+| **Documentation** | `search_docs`, `get_doc_page` | Live Mintlify |
+| **Schema docs** | `search_schema_docs` | Last DDL ingest |
+| **Jira** | `get_jira_ticket`, `read_jira_user_story` | Only on explicit ask |
+| **Project folder** | `workspace_ls`, `workspace_read`, `workspace_grep`, `workspace_write` | Attached local path |
+
+### Live schema
+
+The live schema is the most authoritative source for table structure, column types, and foreign key relationships. SA Agent calls `describe_tables` and `inspect_relationships` at the start of every analysis phase so it knows exactly what your database contains before it writes a single line of a spec. `run_sql` is available inside specialist phases to verify that a query actually returns what a plan claims — but only as a read-only `SELECT` or `WITH`.
+
+### System model
+
+The system model is a deterministic dependency graph of your product repo. It knows **what connects to what** — which endpoints are handled by which services, which repositories query which tables, which tests cover which components. `simulate_impact` uses this graph to compute a blast radius before any change is planned. `search_decisions` surfaces the recorded reasons behind past architecture choices. The system model is only as current as the last time you ran `build_system_model`, so rebuild it after significant code changes.
+
+### Documentation and schema docs
+
+`search_docs` and `get_doc_page` query your live Mintlify documentation in real time. `search_schema_docs` queries a DDL snapshot stored in the vector database; it is useful for narrative descriptions of schema history but is less authoritative than the live database.
+
+### Jira
+
+Jira is queried **only** in the discuss phase, and **only** when you explicitly name a ticket or user story (for example, `"get ticket PROJ-123"`). SA Agent never calls Jira during plan, execute, test, or review phases, and never uses a ticket as a source of schema truth.
+
+### Project folder
+
+When you attach a local project folder via `POST /v1/workspaces`, the workspace tools (`workspace_ls`, `workspace_read`, `workspace_grep`) let specialists read your codebase directly. The execute and review specialists can also write back to it with `workspace_write`. Files are referenced as `@Projects/name/relative/path` in messages.
+
+## How conflicts are resolved
+
+When sources disagree, SA Agent follows a strict rule: **the live database wins**. If `search_schema_docs` says a column exists but `describe_tables` says it does not, SA Agent reports what the live database says and notes the discrepancy. It does not average the two or silently prefer the one that fits the plan better.
+
+The same rule applies to the system model. If code references a table that is not present in the live schema, the system model build reports it as an unknown table — it is never silently added as a node in the graph.
+
+## What SA Agent reports versus invents
+
+SA Agent will tell you when it cannot confirm something. The following situations are always **reported**, never silently accepted:
+
+- A table referenced in SQL or ORM code that does not exist in the live schema
+- A column mentioned in documentation that `describe_tables` does not return
+- A Jira ticket that names a field the live schema does not contain
+- A decision record that references a node that no longer exists in the graph
+
+When you see a finding like *"referenced in code but absent from the live schema"*, treat it as a real signal — it may indicate a dropped table, a typo, a view in another schema, or stale code that needs cleanup.
+
+<Tip>
+  For authoritative schema information, always use `describe_tables` and
+  `inspect_relationships` rather than `search_schema_docs`. The live tools
+  reflect the database as it exists right now; the DDL index is a snapshot
+  that may lag.
+</Tip>
+
+## Vault and artifact mentions
+
+SA Agent also accepts file references inline in your messages. Prefix a vault path with `@` (for example, `@requirements/spec.sql`) to have the agent read that file's contents directly. Phase output files stored in Supabase are referenced as `@Artifacts/{filename}`. Both require an `Authorization: Bearer <token>` header on your request.

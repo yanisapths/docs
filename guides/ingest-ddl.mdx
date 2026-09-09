@@ -1,0 +1,99 @@
+---
+title: "Ingest a DDL Schema Dump for Enhanced Documentation Search"
+sidebarTitle: "DDL Ingest"
+description: "Index a PostgreSQL DDL dump into a Chroma vector store to power search_schema_docs with column comments, constraints, and legacy narrative context."
+---
+
+SA Agent always inspects your live database at query time — `describe_tables` and `inspect_relationships` give it the authoritative, current structure. DDL ingestion adds a complementary layer: it indexes the narrative content of a schema dump (column comments, constraint names, table descriptions, legacy notes) into a Chroma vector store that powers the `search_schema_docs` tool. When you ask the agent why a column is named a certain way, or what a legacy constraint means, it can retrieve that context rather than guessing.
+
+## What DDL ingestion does
+
+Running `ingest:ddl` parses your `.sql` dump, splits it into chunks, embeds each chunk with a local Ollama model, and upserts the vectors into a Chroma collection. The `search_schema_docs` tool then performs semantic similarity search against that collection during the discuss and plan phases, returning the most relevant schema narrative to the agent before it starts designing.
+
+<Note>
+  DDL ingestion is for narrative and documentation context — column comments, constraint descriptions, and legacy notes. For authoritative column types, nullability, and relationships, the agent always calls `describe_tables` and `inspect_relationships` against the live database. The ingest does not replace live schema inspection.
+</Note>
+
+## When to use DDL ingestion
+
+Run DDL ingestion when:
+
+- Your schema has rich `COMMENT ON COLUMN` or `COMMENT ON TABLE` annotations you want the agent to retrieve.
+- You have legacy constraints or naming conventions that are not self-explanatory from the column name alone.
+- You want `search_schema_docs` to return contextual results before `describe_tables` runs.
+
+If your schema has no comments and all column names are self-documenting, ingestion still works but provides less incremental value over live inspection.
+
+## Prerequisites
+
+Set the following variables in `backend/.env` before running the ingest:
+
+| Variable | Purpose |
+|---|---|
+| `CHROMA_HOST` | Chroma server host (e.g. `https://your-chroma-instance.chromadb.io`) |
+| `CHROMA_API_KEY` | Chroma API key |
+| `CHROMA_TENANT` | Chroma tenant name |
+| `CHROMA_DATABASE` | Chroma database name |
+| `CHROMA_DDL_COLLECTION` | Name of the collection to write DDL vectors into |
+| `OLLAMA_URL` | Ollama server URL (e.g. `http://localhost:11434`) |
+| `OLLAMA_EMBED_MODEL` | Embedding model name (e.g. `nomic-embed-text` or `mxbai-embed-large`) |
+
+<Warning>
+  Embeddings do **not** go through the Bifrost gateway. They always use local Ollama because the vector dimension must match the existing Chroma collection. If you change the embedding model you must recreate the collection — mixing dimension widths in the same collection causes silent retrieval failures.
+</Warning>
+
+<Accordion title="Embedding model dimensions">
+  The two supported models produce vectors of different widths. The Chroma collection is created with the width of the first document ingested into it — all subsequent ingests into that collection must use the same model.
+
+  | Model | Dimensions |
+  |---|---|
+  | `nomic-embed-text` | 768 |
+  | `mxbai-embed-large` | 1024 |
+
+  If you see dimension mismatch errors from Chroma, delete the collection and re-ingest with a consistent model choice.
+</Accordion>
+
+## Step 1 — Export your schema as a DDL dump
+
+Use `pg_dump` with `--schema-only` to export only structure, not data. The `--no-owner` flag strips role assignments so the file is portable.
+
+```bash title="Export schema as DDL"
+pg_dump --schema-only --no-owner \
+  -d your_database \
+  > schema.sql
+```
+
+If you use multiple schemas, add `--schema=public --schema=analytics` (or whatever schemas you need). The ingest pipeline handles multi-schema dumps.
+
+## Step 2 — Run the ingest
+
+```bash title="Ingest the DDL dump"
+cd "$SA_AGENT_HOME/backend"
+bun run ingest:ddl path/to/schema.sql
+```
+
+The ingest pipeline:
+
+1. Parses the DDL file into logical chunks (one chunk per table or a group of related `COMMENT` statements).
+2. Embeds each chunk using the Ollama model configured in `OLLAMA_EMBED_MODEL`.
+3. Upserts the vectors into the Chroma collection named in `CHROMA_DDL_COLLECTION`.
+
+A progress line is printed for each chunk. If Ollama or Chroma is unreachable, the command fails with a descriptive error rather than silently writing partial data.
+
+## Step 3 — Verify retrieval
+
+Open a new chat session and ask the agent something that should match a comment or constraint in your dump:
+
+```
+What does the status column on orders represent? Are there any constraints on it?
+```
+
+If `search_schema_docs` is working, the agent will retrieve the relevant DDL chunk and cite it alongside the live `describe_tables` output.
+
+## Keeping the index current
+
+Re-run `bun run ingest:ddl` after any schema migration that adds tables, changes column comments, or introduces new constraints. The ingest is idempotent — it upserts rather than appending — so re-running on an unchanged file is safe.
+
+<Tip>
+  Add the ingest command to your migration pipeline or CI workflow so the Chroma index stays in sync automatically after every `migrate deploy`.
+</Tip>

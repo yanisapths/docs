@@ -1,0 +1,152 @@
+---
+title: "Configure LLM Models and the Bifrost Gateway"
+sidebarTitle: "Model Configuration"
+description: "Select and override LLM models for each agent phase, configure the Bifrost gateway, run local Ollama phases, and verify the full tool-calling path."
+---
+
+SA Agent routes every LLM call through a model ID that encodes both the provider and the routing path. Understanding the ID format lets you mix local and gateway models, pin specific phases to cheaper or more capable models, and verify the entire path before trusting the agent with real work.
+
+## Model ID format
+
+A **slash** in the model ID sends the request through the Bifrost gateway. A **colon** sends it directly to that provider, bypassing the gateway entirely.
+
+```bash title="backend/.env — model ID examples"
+AGENT_EXECUTE_MODEL=ollama:qwen2.5-coder   # local Ollama, never touches the gateway
+AGENT_PLAN_MODEL=dashscope/qwen3.7-max     # Bifrost gateway
+```
+
+This means one phase can stay on a local coder while all others go through Bifrost — useful when you want fast, private execution but gateway-quality reasoning for architecture decisions.
+
+## Bifrost gateway variables
+
+Set these in `backend/.env` to enable the Bifrost gateway. All phase models that have no explicit override will use `BIFROST_MODEL` once these are configured.
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `BIFROST_BASE_URL` | Gateway origin — the agent POSTs to `$BASE/v1/chat/completions` | — |
+| `BIFROST_API_KEY` | Your virtual key | — |
+| `BIFROST_AUTH_HEADER` | Header the key travels in | `x-bf-vk` |
+| `BIFROST_MODEL` | Default `provider/model` for every phase | — |
+| `BIFROST_USER_AGENT` | User-Agent string sent on every request | — |
+| `BIFROST_MAX_TOKENS` | Token budget per completion | `4096` |
+
+<Warning>
+  The gateway is fronted by Cloudflare, which blocks requests from stock SDK agents with a `403 error code 1010`. Set `BIFROST_USER_AGENT` to any non-default string. This is not optional — omitting it looks like a network outage and is one header.
+</Warning>
+
+When `BIFROST_BASE_URL` and `BIFROST_API_KEY` are set, every phase that has no explicit `AGENT_*_MODEL` override automatically uses `BIFROST_MODEL`. Leave them unset and all phases default to `anthropic:claude-haiku-4-5`, which requires `ANTHROPIC_API_KEY`.
+
+## Per-phase model overrides
+
+Override the model for any individual phase without affecting the others:
+
+| Variable | Phase |
+|---|---|
+| `AGENT_CHAT_MODEL` | Chat router (picks the right specialist) |
+| `AGENT_DISCUSS_MODEL` | System Analyst — discuss phase |
+| `AGENT_PLAN_MODEL` | Solution Architect — plan phase |
+| `AGENT_EXECUTE_MODEL` | Coder — execute phase |
+| `AGENT_TEST_MODEL` | Test Engineer — test phase |
+| `AGENT_REVIEW_MODEL` | Reviewer — review phase |
+| `AGENT_PVT_DISCUSS_MODEL` | PVT Analyst — pvt-discuss phase |
+| `AGENT_PVT_PLAN_MODEL` | PVT Planner — pvt-plan phase |
+| `AGENT_PVT_EXECUTE_MODEL` | PVT Scripter — pvt-execute phase |
+
+A typical setup uses a fast gateway model for discuss and plan, a local coder for execute to keep implementation private, and the gateway again for test and review:
+
+```bash title="backend/.env — per-phase example"
+BIFROST_MODEL=dashscope/qwen3.8-max          # default for all phases
+
+AGENT_EXECUTE_MODEL=ollama:qwen2.5-coder     # local coder, no gateway
+AGENT_TEST_MODEL=dashscope/qwen3.7-max       # heavier model for test plans
+```
+
+## Claude Code via Bifrost
+
+The Claude Code CLI is not the LangChain `/chat` client — it speaks the Anthropic Messages API directly. Use the `scripts/claude` launcher, which sets the right environment so the CLI routes through Bifrost instead of `api.anthropic.com`.
+
+```bash title="Launch Claude Code through Bifrost"
+cd /path/to/product-repo
+"$SA_AGENT_HOME/backend/scripts/claude"
+```
+
+The launcher prints the routing summary on startup:
+
+```
+Claude Code → https://…/anthropic
+  model       dashscope/qwen3.8-max
+  small/fast  huawei/glm-5.2
+  key header  x-bf-vk
+```
+
+The two Claude Code model defaults are:
+
+| Variable | Default | Used for |
+|---|---|---|
+| `CLAUDE_BIFROST_MODEL` | `dashscope/qwen3.8-max` | Main Claude Code model |
+| `CLAUDE_BIFROST_SMALL_MODEL` | `huawei/glm-5.2` | Background tasks and plugin subagents that declare `model: haiku` |
+
+Override both in `backend/.env` if you have access to different gateway models.
+
+<Note>
+  The `/model` picker in Claude Code only lists Claude names. To use a gateway model, type the full ID by hand — for example `/model dashscope/qwen3.8-max`. This is expected behavior, not a bug.
+</Note>
+
+## Verifying the gateway
+
+Always verify the full path — headers, model ID, and native tool calling — before running a real session:
+
+```bash title="Verify the Bifrost gateway"
+cd "$SA_AGENT_HOME/backend"
+
+bun run check:bifrost                    # env check + real chat turn + real tool call
+bun run check:bifrost -- --models        # list model IDs this key can actually reach
+bun run check:bifrost -- --claude        # verify the Anthropic Messages API surface
+```
+
+The `--claude` check is the one to run before every Claude Code session. Expect `anthropic surface` and `tool use` to pass. If either fails, the CLI will fail the same way.
+
+List model IDs directly from the gateway:
+
+```bash title="List available model IDs"
+curl -s "$BIFROST_BASE_URL/v1/models" \
+  -H "x-api-key: $BIFROST_API_KEY" | jq '.data[].id'
+```
+
+## Common pitfalls
+
+<Accordion title="Model needs a provider prefix — bare model names fail">
+  The Bifrost gateway does not auto-resolve bare model names. `qwen3.7-flash` fails with _"could not auto resolve a provider"_. Always prefix with the provider: `dashscope/qwen3.7-flash`, `huawei/glm-5.2`, `vertex/gemini-1.5-pro`, and so on.
+
+  This gateway routes `dashscope`, `huawei_claude`, `dashscope_claude`, `huawei`, and `vertex`. It does **not** accept `anthropic/` or `openai/` prefixes — those go to separate surfaces.
+</Accordion>
+
+<Accordion title="User-Agent blocks — 403 error code 1010">
+  Cloudflare fronts the gateway and blocks requests from well-known SDK User-Agent strings with a `403 error code 1010`. The error looks like a network outage and is caused by a single missing header.
+
+  Set `BIFROST_USER_AGENT` in `backend/.env` to any non-default string. LangChain overwrites the HTTP client's `defaultHeaders` User-Agent, so it must be set explicitly in the environment — setting it only on the client object is not enough.
+</Accordion>
+
+<Accordion title="Empty response with finish_reason: length">
+  Reasoning models consume tokens for thinking before they generate content. If `BIFROST_MAX_TOKENS` is too small, the budget can be spent entirely on reasoning tokens and the response content is empty — the turn silently does nothing and `finish_reason` is `"length"`.
+
+  The default is `4096`, which is usually sufficient. If you are using a model with extended thinking (e.g. reasoning-heavy Qwen variants), raise `BIFROST_MAX_TOKENS` to `8192` or higher. A truncated reply logs a warning to stderr.
+</Accordion>
+
+<Accordion title="Cloudflare bot challenge on request bursts">
+  A burst of rapid requests can trigger a Cloudflare bot challenge that returns a `403 "Just a moment..."` HTML page instead of the API response. The agent handles this automatically with exponential backoff and retries — you do not need to do anything. If the challenge persists across retries, slow down the request rate or contact the gateway team.
+</Accordion>
+
+<Accordion title="404 on Bifrost requests — missing /anthropic path">
+  The Anthropic Messages surface is at `$BIFROST_BASE_URL/anthropic`, not at the root. If `BIFROST_BASE_URL` does not end with `/anthropic`, every Claude Code request returns a 404.
+
+  Correct:
+  ```bash
+  BIFROST_BASE_URL=https://inf-bifrost.example.com/anthropic
+  ```
+
+  Incorrect:
+  ```bash
+  BIFROST_BASE_URL=https://inf-bifrost.example.com
+  ```
+</Accordion>
