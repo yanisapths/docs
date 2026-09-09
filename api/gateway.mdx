@@ -1,10 +1,10 @@
 ---
-title: "Gateway API: Available Models and Quota"
+title: "Gateway API: List Available Models and Check Quota"
 sidebarTitle: "Gateway"
-description: "Discover which chat models your Bifrost virtual key can reach and monitor budget consumption using the GET /v1/gateway/models and GET /v1/gateway/quota endpoints."
+description: "Discover which chat models your virtual key can reach and monitor budget consumption using GET /v1/gateway/models and GET /v1/gateway/quota."
 ---
 
-The Gateway API exposes two read-only endpoints that proxy the Bifrost governance surface. Use them to populate a model picker in the Chat GUI and to check remaining budget after each turn. Both endpoints are cached in memory so the GUI can call them freely without hammering the upstream gateway.
+The Gateway API exposes two read-only endpoints for discovering available models and monitoring budget usage. Use them to populate a model picker in the Chat GUI and to check remaining budget after each turn. Both endpoints are cached in memory so the GUI can call them freely without adding latency to every turn.
 
 Both endpoints are `optionalAuth` by default — the same policy as `/chat`. If you expose the backend outside localhost, add `requireAuth` to `/quota` before doing so.
 
@@ -12,9 +12,9 @@ Both endpoints are `optionalAuth` by default — the same policy as `/chat`. If 
 
 ## GET /v1/gateway/models
 
-Returns the chat models that your Bifrost virtual key is authorised to use, together with each model's context length and per-token pricing. Embedding models are filtered out — passing one to `POST /chat` as a `model` override would cause a gateway `404` several supersteps into a run you have already paid for.
+Returns the chat models that your Bifrost virtual key is authorised to use, together with each model's context length and per-token pricing. Embedding models are filtered out — passing one to `POST /chat` as a `model` override would cause a gateway `404` several steps into a run you have already paid for.
 
-Results are cached in memory for the duration configured by `BIFROST_MODELS_CACHE_MS`. The Chat GUI uses this list to build the model picker and validate the `model` field before sending a request.
+Results are cached in memory (configurable via `BIFROST_MODELS_CACHE_MS`). The Chat GUI uses this list to build the model picker and validate the `model` field before sending a request.
 
 ### Response
 
@@ -54,9 +54,9 @@ curl -s http://localhost:3000/v1/gateway/models | jq '.models[].id'
 
 ## GET /v1/gateway/quota
 
-Returns the budget and spend data for your virtual key's current billing period: the overall budget, per-model usage, and per-provider sub-budgets. The data is flattened from Bifrost's `GET /api/governance/virtual-keys/quota` endpoint.
+Returns the budget and spend data for your virtual key's current billing period: the overall budget, per-model usage, and per-provider sub-budgets.
 
-Results are cached in memory for `BIFROST_QUOTA_CACHE_MS` (default **30 seconds**). The Chat GUI reads this endpoint after every turn to refresh the budget display without adding latency to the turn itself.
+Results are cached in memory (default **30 seconds**, configurable via `BIFROST_QUOTA_CACHE_MS`). The Chat GUI reads this endpoint after every turn to refresh the budget display without adding latency to the turn itself.
 
 ### Response
 

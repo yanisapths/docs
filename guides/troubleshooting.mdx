@@ -1,5 +1,5 @@
 ---
-title: "Troubleshoot SA Agent: Common Issues and Fixes"
+title: "SA Agent Troubleshooting: Common Setup and Runtime Fixes"
 sidebarTitle: "Troubleshooting"
 description: "Diagnose and fix the most common SA Agent setup and runtime issues, from gateway authentication to missing MCP servers and empty artifact stores."
 ---
@@ -123,10 +123,10 @@ Most SA Agent problems fall into one of three categories: gateway authentication
 
   **Cause:** Reasoning models consume tokens for thinking before generating content. If `BIFROST_MAX_TOKENS` is too small, the entire token budget can be exhausted during the reasoning phase, leaving nothing for the actual response.
 
-  **Fix:** Increase `BIFROST_MAX_TOKENS` in `backend/.env`. The default is `4096`, which covers most models. For extended-thinking models, set it higher:
+  **Fix:** Increase `BIFROST_MAX_TOKENS` in `backend/.env`. The code default when the variable is unset is `4096`, but `.env.example` ships `50000` as the recommended starting point for reasoning-heavy models. If you lowered this value, restore it:
 
   ```bash title="backend/.env"
-  BIFROST_MAX_TOKENS=8192
+  BIFROST_MAX_TOKENS=50000
   ```
 
   A truncated reply also logs a warning to stderr — check `bun run dev` output for `finish_reason: length` warnings as an early signal before responses go fully empty.

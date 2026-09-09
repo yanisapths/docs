@@ -1,5 +1,5 @@
 ---
-title: "SA Agent HTTP API Reference Overview"
+title: "SA Agent HTTP API: Authentication and Endpoint Groups"
 sidebarTitle: "Overview"
 description: "Explore the SA Agent HTTP API: base URL conventions, authentication requirements, available endpoint groups, and content-type options."
 ---
@@ -27,7 +27,7 @@ Different endpoint groups have different authentication requirements. Auth is al
 | `GET /v1/gateway/*` | Optional |
 | `GET /v1/vault/*`, `POST /v1/vault/*`, `DELETE /v1/vault/*` | **Required** |
 | `GET /v1/artifacts/*`, `PUT /v1/artifacts/*`, `POST /v1/artifacts/*`, `DELETE /v1/artifacts/*` | **Required** |
-| `GET /v1/workspaces`, `POST /v1/workspaces`, `DELETE /v1/workspaces/*` | **Required** |
+| `GET /v1/workspaces`, `POST /v1/workspaces`, `POST /v1/workspaces/pick`, `DELETE /v1/workspaces/*` | **Required** |
 | `GET /v1/sounds/*` | **Required** |
 
 <Warning>

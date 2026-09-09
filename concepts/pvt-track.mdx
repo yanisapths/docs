@@ -1,5 +1,5 @@
 ---
-title: "Production Verification Test Prep with SA Agent"
+title: "SA Agent PVT Track: Production Verification Test Prep"
 sidebarTitle: "PVT Track"
 description: "SA Agent's PVT prep track generates staged SQL scripts for Production Verification Tests in three phases — pvt-discuss, pvt-plan, and pvt-execute."
 ---
@@ -101,7 +101,7 @@ A complete script set looks like this:
 | pvt-plan | `docs/sa/pvt-plan.md` |
 | pvt-execute | `docs/sa/pvt-execute.md` |
 
-These artifacts follow the same human-gate discipline as the main harness: the next specialist reads the approved file, not the conversation. In the Chat GUI, the artifacts are also stored in Supabase and accessible as `@Artifacts/pvt-discuss.md`, `@Artifacts/pvt-plan.md`, and `@Artifacts/pvt-execute.md`.
+These artifacts follow the same human-gate discipline as the main harness: the next specialist reads the approved file, not the conversation. In the Chat GUI, the artifacts are also stored in the artifact store and accessible as `@Artifacts/pvt-discuss.md`, `@Artifacts/pvt-plan.md`, and `@Artifacts/pvt-execute.md`.
 
 ## run_sql stays read-only
 
@@ -111,13 +111,7 @@ Throughout the entire PVT track, `run_sql` remains read-only. The agent uses it 
 
 <Tabs>
   <Tab title="Claude Code">
-    Load the `$pvt-prep` skill to enter the PVT track:
-
-    ```
-    $pvt-prep
-    ```
-
-    Then use `/agents` to select the phase:
+    In Claude Code, use `/agents` to select the PVT phase by name:
 
     ```
     /agents pvt-discuss

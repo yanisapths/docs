@@ -1,5 +1,5 @@
 ---
-title: "Run Your First System Analysis with SA Agent"
+title: "SA Agent First Analysis: Discuss, Plan, and Execute"
 sidebarTitle: "First Analysis"
 description: "Walk through a complete discuss → plan → execute cycle, from building the system model to shipping a PR with real prompts and expected outputs."
 ---
@@ -44,13 +44,15 @@ SA Agent grounds every answer in your live PostgreSQL schema, a dependency graph
       </Tab>
       <Tab title="Chat API">
         ```bash title="POST /chat — discuss phase"
-        curl -s -X POST http://localhost:5001/chat \
+        curl -s -X POST http://localhost:3000/chat \
           -H 'Content-Type: application/json' \
           -d '{
             "message": "I need to add a user activity feed. Show me the relevant tables and any gaps.",
             "phase": "discuss"
           }'
         ```
+
+        The default backend port is `3000`. If you are running the Chat GUI alongside the backend, set `PORT=5001` in `backend/.env` to avoid the port conflict and update these URLs accordingly.
 
         Save the returned `threadId` — pass it on every subsequent turn to continue the session.
       </Tab>
@@ -101,7 +103,7 @@ SA Agent grounds every answer in your live PostgreSQL schema, a dependency graph
       </Tab>
       <Tab title="Chat API">
         ```bash title="POST /chat — plan phase"
-        curl -s -X POST http://localhost:5001/chat \
+        curl -s -X POST http://localhost:3000/chat \
           -H 'Content-Type: application/json' \
           -d '{
             "message": "Proceed to plan the activity feed endpoint.",
@@ -151,7 +153,7 @@ SA Agent grounds every answer in your live PostgreSQL schema, a dependency graph
       </Tab>
       <Tab title="Chat API">
         ```bash title="POST /chat — execute phase"
-        curl -s -X POST http://localhost:5001/chat \
+        curl -s -X POST http://localhost:3000/chat \
           -H 'Content-Type: application/json' \
           -d '{
             "message": "Implement the approved plan in docs/sa/plan.md.",
@@ -184,7 +186,7 @@ SA Agent grounds every answer in your live PostgreSQL schema, a dependency graph
       </Tab>
       <Tab title="Chat API">
         ```bash title="Test phase"
-        curl -s -X POST http://localhost:5001/chat \
+        curl -s -X POST http://localhost:3000/chat \
           -H 'Content-Type: application/json' \
           -d '{
             "message": "Write the test plan for the activity feed endpoint based on docs/sa/execute.md.",

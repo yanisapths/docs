@@ -1,7 +1,7 @@
 ---
 title: "Configure SA Agent: Database, Models, and Integrations"
 sidebarTitle: "Configuration"
-description: "Reference for every environment variable in SA Agent: database connection, LLM model routing, and optional integrations like Jira, LangSmith, and Supabase vault."
+description: "SA Agent environment variable reference: database connection, model routing per phase, and optional integrations for Jira, LangSmith, and Supabase vault."
 ---
 
 SA Agent reads its configuration from `backend/.env`. The file is never committed — copy `backend/.env.example` and fill in the values relevant to your setup. This page covers every variable grouped by concern.
@@ -51,7 +51,7 @@ You need at least one of the following. Bifrost is recommended — it routes eve
     </ParamField>
 
     <ParamField body="BIFROST_USER_AGENT" type="string" default="sa-agent/0.1">
-      User-Agent sent on every request. The gateway is fronted by Cloudflare, which blocks stock SDK agents — this must be set on the outgoing request.
+      User-Agent sent on every request to the gateway. Some gateway deployments reject requests that use a generic SDK agent string — keep this set to avoid silent rejections.
     </ParamField>
   </Tab>
   <Tab title="Anthropic direct">
@@ -135,8 +135,8 @@ When you use the `./scripts/claude` launcher, the CLI speaks the Anthropic Messa
     Assistant API key — the `mint_dsc_…` key, not the site access code.
   </ParamField>
 
-  <ParamField body="MINTLIFY_DOMAIN" type="string" default="aster-internal">
-    Your Mintlify deployment slug.
+  <ParamField body="MINTLIFY_DOMAIN" type="string">
+    Your Mintlify deployment slug, e.g. `your-org`.
   </ParamField>
 
   <ParamField body="MINTLIFY_GROUPS" type="string">
@@ -163,7 +163,7 @@ When you use the `./scripts/claude` launcher, the CLI speaks the Anthropic Messa
     Your Chroma database name.
   </ParamField>
 
-  <ParamField body="CHROMA_DDL_COLLECTION" type="string" default="aster-database_ddl">
+  <ParamField body="CHROMA_DDL_COLLECTION" type="string" default="database_ddl">
     Name of the Chroma collection holding indexed DDL narrative.
   </ParamField>
 

@@ -1,7 +1,7 @@
 ---
-title: "How SA Agent Grounds Every Answer in Live Data"
+title: "How SA Agent Grounds Every Answer in Live Schema Data"
 sidebarTitle: "Grounding"
-description: "SA Agent never answers from memory alone. Every claim is traced to a live PostgreSQL schema, a dependency graph, or indexed documentation — never invented."
+description: "SA Agent never answers from memory alone. Every claim traces to a live PostgreSQL schema, a dependency graph, or indexed documentation — never invented."
 ---
 
 SA Agent is built around a single constraint: no table, column, or endpoint may be invented. Every claim it makes during discussion, planning, execution, testing, or review is traced to a source you can inspect yourself. When sources disagree, the live database wins.
@@ -29,7 +29,7 @@ The system model is a deterministic dependency graph of your product repo. It kn
 
 ### Documentation and schema docs
 
-`search_docs` and `get_doc_page` query your live Mintlify documentation in real time. `search_schema_docs` queries a DDL snapshot stored in the vector database; it is useful for narrative descriptions of schema history but is less authoritative than the live database.
+`search_docs` and `get_doc_page` query your live Mintlify documentation in real time. `search_schema_docs` queries a DDL snapshot stored in the schema index; it is useful for narrative descriptions of schema history but is less authoritative than the live database.
 
 ### Jira
 
@@ -65,4 +65,4 @@ When you see a finding like *"referenced in code but absent from the live schema
 
 ## Vault and artifact mentions
 
-SA Agent also accepts file references inline in your messages. Prefix a vault path with `@` (for example, `@requirements/spec.sql`) to have the agent read that file's contents directly. Phase output files stored in Supabase are referenced as `@Artifacts/{filename}`. Both require an `Authorization: Bearer <token>` header on your request.
+SA Agent also accepts file references inline in your messages. Prefix a vault path with `@` (for example, `@requirements/spec.sql`) to have the agent read that file's contents directly. Phase output files stored in the artifact store are referenced as `@Artifacts/{filename}`. Both require an `Authorization: Bearer <token>` header on your request.

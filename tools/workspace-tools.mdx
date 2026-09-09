@@ -1,7 +1,7 @@
 ---
 title: "SA Agent Workspace Tools: Local Project File Access"
 sidebarTitle: "Workspace Tools"
-description: "Four tools for listing, reading, searching, and writing files in a locally attached project folder from the SA Agent Chat GUI."
+description: "Four tools for listing, reading, searching, and writing files in your locally attached project folder — available in the SA Agent Chat GUI only."
 ---
 
 SA Agent can read and write files directly in your local project repository when you attach a project folder. Workspace tools bridge the gap between your codebase on disk and the agent's analysis — SA Agent can navigate the directory tree, read source files, search for patterns, and write generated code back to the right location without you having to copy-paste.
@@ -23,7 +23,7 @@ Attach a local project folder through the Chat GUI's project panel, or by sendin
 `workspace_ls` lists the files and directories in the attached project folder. Use it to orient SA Agent in an unfamiliar codebase, to confirm that a directory exists before reading from it, or to find the right path before writing a file.
 
 <ParamField body="path" type="string">
-  The directory to list, relative to the project root. Defaults to `"."` (the project root). For example: `"src/"` or `"internal/handler/voting"`.
+  The directory to list, relative to the project root. Defaults to `"."` (the project root). For example: `"src/"` or `"internal/handler/orders"`.
 </ParamField>
 
 <ParamField body="depth" type="integer">
@@ -37,7 +37,7 @@ Attach a local project folder through the Chat GUI's project panel, or by sendin
 `workspace_read` reads the full text content of a file in the attached project folder. SA Agent uses this to inspect source code, configuration files, and existing implementations before designing changes.
 
 <ParamField body="path" type="string" required>
-  The file path relative to the project root, e.g. `"README.md"` or `"internal/handler/voting/handler.go"`. If the path resolves to a directory rather than a file, the tool returns a directory listing instead.
+  The file path relative to the project root, e.g. `"README.md"` or `"internal/handler/orders/handler.go"`. If the path resolves to a directory rather than a file, the tool returns a directory listing instead.
 </ParamField>
 
 <Tip>
@@ -73,7 +73,7 @@ Attach a local project folder through the Chat GUI's project panel, or by sendin
 </ParamField>
 
 <Warning>
-  Do not write files under `.git/`. Do not use `workspace_write` for phase artifacts (those are written with `write_file` to `/artifacts/`) or for human downloads (those use `write_files`). Using the wrong write tool for these outputs will break downstream phase tracking.
+  Do not write files under `.git/`. `workspace_write` is for project source files only — use it to write generated code, configuration, or SQL scripts into your project repo. Do not use it for SA Agent conversation artifacts or downloadable deliverables, which have their own output channels.
 </Warning>
 
 ---

@@ -1,7 +1,7 @@
 ---
-title: "SA Agent Knowledge Tools: Docs and Schema Search"
+title: "SA Agent: Knowledge Tools for Docs and Schema Search"
 sidebarTitle: "Knowledge Tools"
-description: "Three tools for searching indexed Mintlify documentation and DDL narrative so SA Agent grounds answers in API contracts, conventions, and schema background."
+description: "Three tools for searching Mintlify documentation and DDL narrative so SA Agent grounds answers in API contracts, conventions, and schema background."
 ---
 
 SA Agent answers questions about your API contracts, authentication patterns, and table-level background through three knowledge tools backed by indexed Mintlify documentation and a DDL narrative store. These tools are available on both the `langchain` (Chat GUI) and `mcp-knowledge` (Claude Code / Codex plugin) surfaces. Use `search_docs` to locate relevant pages, `get_doc_page` to read them in full, and `search_schema_docs` for background context on tables and columns.
@@ -11,7 +11,7 @@ SA Agent answers questions about your API contracts, authentication patterns, an
 `search_docs` scans the indexed Mintlify documentation for API contracts, endpoint definitions, authentication schemes, and project conventions. It returns a list of matching page titles, path slugs, and short content snippets. Snippets are summaries only — never treat them as a complete answer. Always follow up with `get_doc_page` on the best matching paths.
 
 <ParamField body="query" type="string" required>
-  The topic or question to search for, e.g. `"voting endpoint authentication"` or `"pagination conventions"`.
+  The topic or question to search for, e.g. `"orders endpoint authentication"` or `"pagination conventions"`.
 </ParamField>
 
 <ParamField body="limit" type="integer">
@@ -29,7 +29,7 @@ SA Agent answers questions about your API contracts, authentication patterns, an
 `get_doc_page` reads one or more full Mintlify documentation pages by their path slugs. Pass the exact `path` field returned by `search_docs` — no leading slash, no domain. SA Agent reads the complete page content so it can ground its answer in the full specification rather than a snippet.
 
 <ParamField body="paths" type="string[]" required>
-  An array of 1–8 exact path slugs from `search_docs`, e.g. `["aster-admin/orch-admin-service/voting/overview"]`. Do not add a leading slash and do not pass full URLs.
+  An array of 1–8 exact path slugs from `search_docs`, e.g. `["api-reference/endpoints/orders/overview"]`. Do not add a leading slash and do not pass full URLs.
 </ParamField>
 
 <Note>
@@ -43,7 +43,7 @@ SA Agent answers questions about your API contracts, authentication patterns, an
 `search_schema_docs` searches an indexed snapshot of DDL documentation for background on tables and columns — historical context, business intent, and the human-readable explanations that were written alongside the schema. This is a **documentation snapshot**, not the live schema. For authoritative, current column definitions and foreign-key relationships, use `describe_tables` and `inspect_relationships` instead.
 
 <ParamField body="query" type="string" required>
-  The table name, column name, or business concept to look up, e.g. `"trait_user_result scoring"`.
+  The table name, column name, or business concept to look up, e.g. `"orders status field"` or `"user account business rules"`.
 </ParamField>
 
 <ParamField body="limit" type="integer">

@@ -69,7 +69,7 @@ The build is deterministic and calls no model — run it as often as needed with
 Always confirm the reason with the human before recording. Do not invent a rationale.
 
 <ParamField body="title" type="string" required>
-  One line in the imperative mood describing what was decided, e.g. `"Store trait results instead of recomputing them"`.
+  One line in the imperative mood describing what was decided, e.g. `"Store aggregated results instead of recomputing them"`.
 </ParamField>
 
 <ParamField body="context" type="string" required>
@@ -103,7 +103,7 @@ Always confirm the reason with the human before recording. Do not invent a ratio
 `search_decisions` searches the recorded decision records for the reasoning behind an existing implementation. It answers "why is this like this?" where the graph and the schema answer only "what" and "where". Check it before proposing any change that might contradict a past choice.
 
 <ParamField body="query" type="string" required>
-  The topic, table name, component name, or question you are investigating, e.g. `"trait results scoring"` or `"why is user_id nullable on orders"`.
+  The topic, table name, component name, or question you are investigating, e.g. `"order results calculation"` or `"why is user_id nullable on orders"`.
 </ParamField>
 
 <ParamField body="limit" type="integer">

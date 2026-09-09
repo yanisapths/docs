@@ -1,7 +1,7 @@
 ---
-title: "SA Agent's Six-Phase Analysis Workflow Explained"
+title: "SA Agent Six-Phase Analysis Workflow: How It Works"
 sidebarTitle: "Phases"
-description: "SA Agent runs a six-phase harness loop — discuss, plan, execute, test, review, ship — with a human approval gate between each phase and a specialist model per phase."
+description: "SA Agent runs six phases — discuss, plan, execute, test, review, ship — each a narrow specialist that writes one artifact and waits for human approval."
 ---
 
 SA Agent does not hand your entire request to one large model and wait for a single answer. Instead, it runs a disciplined six-phase loop: a cheap orchestrator routes to a specialist, the specialist produces one artifact, and then it stops and waits for you. The next phase reads that artifact — not the conversation — so context stays small and each specialist stays focused.

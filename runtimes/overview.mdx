@@ -1,10 +1,10 @@
 ---
-title: "Choose Your SA Agent Runtime"
+title: "SA Agent Runtimes: Claude Code, Codex, and Chat GUI"
 sidebarTitle: "Overview"
 description: "Compare SA Agent's three runtimes — Claude Code plugin, Codex plugin, and Chat GUI — and choose the one that fits your workflow and toolchain."
 ---
 
-SA Agent runs in three distinct runtimes, each suited to a different working style. The Claude Code and Codex plugins turn your product repo into the workspace: the LLM runs inside the editor, and SA Agent supplies live tools, skills, and memory as a plugin. The Chat GUI takes the opposite approach — a browser interface backed by a LangChain Deep Agent that you talk to over HTTP. All three runtimes share the same tools and the same memory, so your grounding (schema, system model, docs) is consistent regardless of which surface you choose.
+SA Agent runs in three distinct runtimes, each suited to a different working style. The Claude Code and Codex plugins turn your product repo into the workspace: the LLM runs inside the editor, and SA Agent supplies live tools, skills, and memory as a plugin. The Chat GUI takes the opposite approach — a browser interface backed by an HTTP agent that you talk to over `POST /chat`. All three runtimes share the same tools and the same memory, so your grounding (schema, system model, docs) is consistent regardless of which surface you choose.
 
 ## Runtimes at a Glance
 
@@ -12,10 +12,10 @@ SA Agent runs in three distinct runtimes, each suited to a different working sty
 |---|---|---|---|
 | **Claude Code** (CLI or GUI) | Claude Code running in your product repo | Plugin supplies tools, skills, and subagents; writes files directly in your workspace | Teams using Claude Code daily; full phase automation with subagents |
 | **Codex** (CLI or ChatGPT desktop) | Codex running in your product repo | Plugin supplies tools and skills; skills drive phase discipline; no subagents | Teams on ChatGPT desktop or the Codex CLI; skill-by-skill phase flow |
-| **Chat GUI** | LangChain Deep Agent behind `POST /chat` | Browser frontend + HTTP backend; vault, artifacts, and local project folders via sidebar | Browser-first workflows; ad-hoc analysis; vault uploads; HITL approval flow |
+| **Chat GUI** | HTTP agent behind `POST /chat` | Browser frontend + HTTP backend; vault, artifacts, and local project folders via sidebar | Browser-first workflows; ad-hoc analysis; vault uploads; HITL approval flow |
 
 <Note>
-Neither the Claude Code plugin nor the Codex plugin invokes the LangChain `/chat` agent. They are fully independent runtimes. MCP tool calls from both plugin runtimes still appear in LangSmith — tagged `mcp` plus `claude-code` or `codex` — when `LANGSMITH_TRACING=true`.
+Neither the Claude Code plugin nor the Codex plugin invokes the `/chat` agent. They are fully independent runtimes that communicate directly with your configured LLM gateway via MCP.
 </Note>
 
 ## Shared Tools and Memory
@@ -65,6 +65,6 @@ All three runtimes load the same tool catalog and memory. You get identical grou
     Skill-driven phases for teams using Codex CLI or the ChatGPT desktop app. Same tools, no subagents.
   </Card>
   <Card title="Chat GUI" icon="browser" href="/runtimes/chat-gui">
-    Browser chat backed by the LangChain Deep Agent. Vault, artifacts, HITL interrupts, and local project folders.
+    Browser chat backed by the HTTP agent. Vault, artifacts, HITL interrupts, and local project folders.
   </Card>
 </CardGroup>

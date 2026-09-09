@@ -4,7 +4,7 @@ sidebarTitle: "Chat GUI"
 description: "Run the SA Agent browser interface, attach local project folders, use the vault for file uploads, and manage HITL approval interrupts."
 ---
 
-The Chat GUI gives you a browser interface to the same SA Agent capabilities available in the CLI plugins — live schema tools, system model, docs search, and phase-by-phase analysis. Behind the scenes it runs a LangChain Deep Agent that your browser talks to over `POST /chat`. Unlike the plugin runtimes, this is a full HTTP client–server setup: a Next.js frontend communicates with an Express backend, and you can attach local project folders, upload files to the vault, and review phase artifacts in a dedicated panel.
+The Chat GUI gives you a browser interface to the same SA Agent capabilities available in the CLI plugins — live schema tools, system model, docs search, and phase-by-phase analysis. Behind the scenes an HTTP agent handles your requests over `POST /chat`. Unlike the plugin runtimes, this is a full HTTP client–server setup: a Next.js frontend communicates with an Express backend, and you can attach local project folders, upload files to the vault, and review phase artifacts in a dedicated panel.
 
 <Note>
 The backend process and the local project folders you attach must live on the same computer. The Chat GUI cannot read folders on a remote machine.
@@ -78,7 +78,7 @@ curl -s -X POST http://localhost:5001/chat \
 The agent maintains per-thread state using the `threadId` returned in each response. The GUI passes this automatically on every subsequent turn. When calling the API directly, include the returned `threadId` in your next request to keep the conversation in context.
 
 <Tip>
-Switching the `model` mid-thread is supported. The agent cache is keyed per model but shares one checkpointer, so the conversation history carries over.
+Switching the `model` mid-thread is supported. The conversation history carries over when you change model within the same thread.
 </Tip>
 
 ## Attaching a Local Project Folder

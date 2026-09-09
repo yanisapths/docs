@@ -1,7 +1,7 @@
 ---
-title: "Chat API: POST /chat and POST /chat/resume"
+title: "Chat API — Streaming, Interrupts, and File Uploads"
 sidebarTitle: "Chat"
-description: "Send messages to the SA Agent, stream phase-by-phase reasoning over SSE, and resume human-in-the-loop interrupts using POST /chat and POST /chat/resume."
+description: "Send messages to SA Agent, stream phase reasoning over SSE, and resume human-in-the-loop interrupts with POST /chat and /chat/resume."
 ---
 
 The Chat API is the primary interface for all agent interactions. Send a message to `POST /chat` and the router picks the right phase specialist, grounds its reasoning in the live PostgreSQL schema and indexed documentation, and returns a structured response. Use `POST /chat/resume` to provide approval decisions when a turn pauses at a human-in-the-loop gate.
@@ -84,7 +84,7 @@ Set `Accept: text/event-stream` to receive a stream of Server-Sent Events as the
 |---|---|
 | `thread` | Emitted first; carries the `threadId` for this session. |
 | `messages` | Intermediate message list (tool calls, tool results). |
-| `step` | A completed superstep with its output. |
+| `step` | A completed reasoning step with its output. |
 | `interrupt` | Human-in-the-loop gate reached; the turn is pausing for approval. |
 | `values` | Final graph state values after the last step. |
 | `usage` | Token counts and cost for the turn. |
@@ -109,7 +109,7 @@ The `usage` object covers spend across all phase specialists for the turn — no
 <ResponseField name="cacheReadTokens" type="number">Tokens served from the provider's prompt cache.</ResponseField>
 <ResponseField name="costUsd" type="number">Estimated cost in USD.</ResponseField>
 <ResponseField name="costEstimated" type="boolean">
-  `true` when the figure is a blended rate derived from prior billing data rather than a published per-token price. This is the common case for the default `BIFROST_MODEL`.
+  `true` when the figure is a blended rate derived from prior billing data rather than a published per-token price. This is common when the gateway does not publish a per-token price for the configured model.
 </ResponseField>
 <ResponseField name="models" type="array">Per-model breakdown for turns that called multiple model IDs.</ResponseField>
 

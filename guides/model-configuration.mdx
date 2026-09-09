@@ -1,5 +1,5 @@
 ---
-title: "Configure LLM Models and the Bifrost Gateway"
+title: "Configure Models and the Bifrost Gateway for SA Agent"
 sidebarTitle: "Model Configuration"
 description: "Select and override LLM models for each agent phase, configure the Bifrost gateway, run local Ollama phases, and verify the full tool-calling path."
 ---
@@ -28,7 +28,7 @@ Set these in `backend/.env` to enable the Bifrost gateway. All phase models that
 | `BIFROST_AUTH_HEADER` | Header the key travels in | `x-bf-vk` |
 | `BIFROST_MODEL` | Default `provider/model` for every phase | — |
 | `BIFROST_USER_AGENT` | User-Agent string sent on every request | — |
-| `BIFROST_MAX_TOKENS` | Token budget per completion | `4096` |
+| `BIFROST_MAX_TOKENS` | Token budget per completion | `4096` (code default; `.env.example` ships `50000`) |
 
 <Warning>
   The gateway is fronted by Cloudflare, which blocks requests from stock SDK agents with a `403 error code 1010`. Set `BIFROST_USER_AGENT` to any non-default string. This is not optional — omitting it looks like a network outage and is one header.
@@ -130,7 +130,7 @@ curl -s "$BIFROST_BASE_URL/v1/models" \
 <Accordion title="Empty response with finish_reason: length">
   Reasoning models consume tokens for thinking before they generate content. If `BIFROST_MAX_TOKENS` is too small, the budget can be spent entirely on reasoning tokens and the response content is empty — the turn silently does nothing and `finish_reason` is `"length"`.
 
-  The default is `4096`, which is usually sufficient. If you are using a model with extended thinking (e.g. reasoning-heavy Qwen variants), raise `BIFROST_MAX_TOKENS` to `8192` or higher. A truncated reply logs a warning to stderr.
+  The code default when the variable is unset is `4096`. The supplied `.env.example` ships `50000`, which is the recommended starting point for reasoning-heavy models. If you lowered this value and are seeing empty responses, raise it back to `50000` or higher. A truncated reply logs a warning to stderr.
 </Accordion>
 
 <Accordion title="Cloudflare bot challenge on request bursts">
